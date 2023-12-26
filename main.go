@@ -23,9 +23,11 @@ func main() {
 		log.Fatalf("failed to parse server URL %v", err)
 	}
 
-	proxyEndpoints := []string{
-		"lnurlpay",         // The initial endpoint for the node lnurlpay
-		"lnurlpay_invoice", // The lnurlpay endpoint to get the invoice
+	proxyEndpoints := map[string][]string{
+		"lnurlpay": {
+			"",                 // The initial endpoint for the node lnurlpay
+			"lnurlpay_invoice", // The lnurlpay endpoint to get the invoice
+		},
 	}
 	NewServer(internalURL, externalURL, storage, proxyEndpoints).Serve()
 }

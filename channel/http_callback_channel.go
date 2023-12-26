@@ -15,6 +15,10 @@ import (
 	"github.com/gorilla/mux"
 )
 
+const (
+	callbackTimeout = 30 * time.Second
+)
+
 type WebhookChannel interface {
 	SendRequest(url string, payload string, rw http.ResponseWriter) (string, error)
 }
@@ -36,12 +40,18 @@ type HttpCallbackChannel struct {
 	pendingRequests map[uint64]*PendingRequest
 }
 
-func NewHttpCallbackChannel(callbackBaseURL string) *HttpCallbackChannel {
-	return &HttpCallbackChannel{
+func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCallbackChannel {
+
+	channel := &HttpCallbackChannel{
 		callbackBaseURL: callbackBaseURL,
 		random:          rand.New(rand.NewSource(time.Now().UnixNano())),
 		pendingRequests: make(map[uint64]*PendingRequest),
 	}
+
+	// We register the route for node responses via the callback route
+	router.HandleFunc("/response/{responseID}", channel.HandleResponse).Methods("POST")
+
+	return channel
 }
 
 func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.ResponseWriter) (string, error) {
@@ -70,7 +80,7 @@ func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.Re
 	select {
 	case result := <-pendingRequest.result:
 		return result, nil
-	case <-time.After(30 * time.Second):
+	case <-time.After(callbackTimeout):
 		p.Lock()
 		delete(p.pendingRequests, reqID)
 		p.Unlock()

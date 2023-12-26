@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,19 +12,24 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/breez-lnurl/webhook"
+	"github.com/breez/lspd/lightning"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/gorilla/mux"
+	"github.com/tv42/zbase32"
 )
 
 const (
-	pubkey            = "123"
 	hookKey           = "456"
 	serverAddress     = "localhost:8080"
 	hookServerAddress = "localhost:8085"
-	testEndpoint      = "test"
+	testFeature       = "testFeature"
+	testEndpoint      = "testEndpoint"
 )
 
 func setupServer(storage persist.Store) {
@@ -30,7 +37,7 @@ func setupServer(storage persist.Store) {
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)
 	}
-	server := NewServer(serverURL, serverURL, storage, []string{testEndpoint})
+	server := NewServer(serverURL, serverURL, storage, map[string][]string{testFeature: {testEndpoint}})
 	go func() {
 		persist.NewCleanupService(storage).Start(context.Background())
 	}()
@@ -70,26 +77,50 @@ func TestRegisterWebhook(t *testing.T) {
 	setupHookServer(t)
 
 	// Test adding webhook
+	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
+	time := time.Now().Unix()
+	messgeToSign := fmt.Sprintf("%v-%v-%v", time, hookKey, url)
+	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
+	first := sha256.Sum256([]byte(msg))
+	second := sha256.Sum256(first[:])
+	privKey, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		t.Errorf("failed to generate private key %v", err)
+	}
+	pubkey := privKey.PubKey()
+	sig, err := ecdsa.SignCompact(privKey, second[:], true)
+	if err != nil {
+		t.Errorf("failed to sign signature %v", err)
+	}
+	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 	addWebhookPayload, _ := json.Marshal(webhook.AddWebhookRequest{
-		HookID:    hookKey,
-		Url:       fmt.Sprintf("http://%v/callback", hookServerAddress),
-		Signature: "",
+		Time:      time,
+		HookKey:   hookKey,
+		Url:       url,
+		Signature: zbase32.EncodeToString(sig),
 	})
 
-	httpRes, err := http.Post(fmt.Sprintf("http://%v/webhooks/%v", serverAddress, pubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
+	httpRes, err := http.Post(fmt.Sprintf("http://%v/webhooks/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
 	if httpRes.StatusCode != 200 {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
-	webhook, _ := storage.Get(context.Background(), pubkey, hookKey)
+
+	h := sha256.New()
+	if _, err := h.Write([]byte(hookKey)); err != nil {
+		t.Errorf("failed hash key %v", err)
+	}
+	keyHash := hex.EncodeToString(h.Sum(nil))
+	webhook, _ := storage.Get(context.Background(), serializedPubkey, keyHash)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
 
 	// Test proxy endpoint
-	proxyRes, err := http.Get(fmt.Sprintf("http://%v/%v/%v/%v", serverAddress, pubkey, hookKey, testEndpoint))
+	u := fmt.Sprintf("http://%v/%v/%v/%v/%v", serverAddress, testFeature, serializedPubkey, keyHash, testEndpoint)
+	proxyRes, err := http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}

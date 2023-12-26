@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/persist"
@@ -19,7 +20,7 @@ type Server struct {
 	rootHandler *mux.Router
 }
 
-func NewServer(internalURL *url.URL, externalURL *url.URL, storage persist.Store, proxyEndpoints []string) *Server {
+func NewServer(internalURL *url.URL, externalURL *url.URL, storage persist.Store, proxyEndpoints map[string][]string) *Server {
 	server := &Server{
 		internalURL: internalURL,
 		externalURL: externalURL,
@@ -34,7 +35,7 @@ func (s *Server) Serve() error {
 	return http.ListenAndServe(s.internalURL.Host, s.rootHandler)
 }
 
-func initRootHandler(externalURL *url.URL, storage persist.Store, proxyEndpoints []string) *mux.Router {
+func initRootHandler(externalURL *url.URL, storage persist.Store, proxyEndpoints map[string][]string) *mux.Router {
 	rootRouter := mux.NewRouter()
 
 	// start the cleanup service
@@ -42,17 +43,23 @@ func initRootHandler(externalURL *url.URL, storage persist.Store, proxyEndpoints
 		persist.NewCleanupService(storage).Start(context.Background())
 	}()
 
-	webhookChannel := channel.NewHttpCallbackChannel(fmt.Sprintf("%v/response", externalURL.String()))
+	// The channel that handles the request/response cycle from the node.
+	// This specific channel handles that by invoking the registered webhook to reach the node
+	// providing a callback URL to the node.
+	webhookChannel := channel.NewHttpCallbackChannel(rootRouter, fmt.Sprintf("%v/response", externalURL.String()))
 
 	// Routes to manage webhooks.
-	webhookRoutes := webhook.NewWebhookRouter(storage, webhookChannel)
-	rootRouter.HandleFunc("/webhooks/{pubkey}", webhookRoutes.Set).Methods("POST")
+	webhookRoutes := webhook.NewWebhookRouter(rootRouter, storage, webhookChannel)
 
 	// Routes to handle external communication with the node using webhooks.
-	for _, e := range proxyEndpoints {
-		rootRouter.HandleFunc(fmt.Sprintf("/{pubkey}/{hookKey}/%v", e), webhookRoutes.RequestHandler(e)).Methods("GET")
+	// The endpoint name is part of the payload that is sent to the node which makes this
+	// mechanism pretty generic.
+	for feature, endpoints := range proxyEndpoints {
+		for _, endpoint := range endpoints {
+			u := fmt.Sprintf("/%v/{pubkey}/{hookKeyHash}/%v", feature, endpoint)
+			rootRouter.HandleFunc(u, webhookRoutes.RequestHandler(strings.Join([]string{feature, endpoint}, "-"))).Methods("GET", "POST")
+		}
 	}
 
-	rootRouter.HandleFunc("/response/{responseID}", webhookChannel.HandleResponse).Methods("POST")
 	return rootRouter
 }
