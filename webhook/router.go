@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 
@@ -15,11 +14,6 @@ import (
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
 )
-
-type InvokeWebhookRequest struct {
-	Template string          `json:"template"`
-	Data     json.RawMessage `json:"data"`
-}
 
 type AddWebhookRequest struct {
 	Time      int64  `json:"time"`
@@ -67,7 +61,7 @@ type WebhooksRouter struct {
 	channel channel.WebhookChannel
 }
 
-func NewWebhookRouter(rootRouter *mux.Router, store persist.Store, channel channel.WebhookChannel) *WebhooksRouter {
+func RegisterWebhookRouter(rootRouter *mux.Router, store persist.Store, channel channel.WebhookChannel) {
 	webhookRouter := &WebhooksRouter{
 		store:   store,
 		channel: channel,
@@ -75,9 +69,7 @@ func NewWebhookRouter(rootRouter *mux.Router, store persist.Store, channel chann
 	// Set webhook for a specific key
 	rootRouter.HandleFunc("/webhooks/{pubkey}", webhookRouter.set).Methods("POST")
 	// Delete webhook for a specific key
-	rootRouter.HandleFunc("/webhooks/{pubkey}", webhookRouter.Remove).Methods("DELETE")
-
-	return webhookRouter
+	rootRouter.HandleFunc("/webhooks/{pubkey}", webhookRouter.remove).Methods("DELETE")
 }
 
 /*
@@ -122,6 +114,7 @@ func (s *WebhooksRouter) set(w http.ResponseWriter, r *http.Request) {
 		)
 
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -129,7 +122,7 @@ func (s *WebhooksRouter) set(w http.ResponseWriter, r *http.Request) {
 /*
 Remove deletes a webhook for a given pubkey and a unique identifier.
 */
-func (s *WebhooksRouter) Remove(w http.ResponseWriter, r *http.Request) {
+func (s *WebhooksRouter) remove(w http.ResponseWriter, r *http.Request) {
 	var removeRequest RemoveWebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&removeRequest); err != nil {
 		log.Printf("json.NewDecoder.Decode error: %v", err)
@@ -161,64 +154,7 @@ func (s *WebhooksRouter) Remove(w http.ResponseWriter, r *http.Request) {
 			err,
 		)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
-}
-
-/*
-HandleRequest handles the request from the external caller and forward it to the node.
-*/
-func (l *WebhooksRouter) RequestHandler(requestType string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		params := mux.Vars(r)
-		pubkey, ok := params["pubkey"]
-		if !ok {
-			http.Error(w, "invalid pubkey", http.StatusBadRequest)
-			return
-		}
-
-		hookKeyHash, ok := params["hookKeyHash"]
-		if !ok {
-			http.Error(w, "invalid pubkey", http.StatusBadRequest)
-			return
-		}
-
-		webhook, err := l.store.Get(context.Background(), pubkey, hookKeyHash)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if webhook == nil {
-			http.Error(w, "webhook not found", http.StatusNotFound)
-			return
-		}
-
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		bodyBytes, err := json.Marshal(body)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		request := InvokeWebhookRequest{
-			Template: requestType,
-			Data:     bodyBytes,
-		}
-		jsonBytes, err := json.Marshal(request)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		response, err := l.channel.SendRequest(webhook.Url, string(jsonBytes), w)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte(response))
-	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/lnurl"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/breez-lnurl/webhook"
 	"github.com/breez/lspd/lightning"
@@ -37,7 +38,7 @@ func setupServer(storage persist.Store) {
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)
 	}
-	server := NewServer(serverURL, serverURL, storage, map[string][]string{testFeature: {testEndpoint}})
+	server := NewServer(serverURL, serverURL, storage)
 	go func() {
 		persist.NewCleanupService(storage).Start(context.Background())
 	}()
@@ -118,8 +119,8 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("expected webhook to be registered")
 	}
 
-	// Test proxy endpoint
-	u := fmt.Sprintf("http://%v/%v/%v/%v/%v", serverAddress, testFeature, serializedPubkey, keyHash, testEndpoint)
+	// Test lnurlpay info endpoint
+	u := fmt.Sprintf("http://%v/lnurlpay/%v/%v", serverAddress, serializedPubkey, keyHash)
 	proxyRes, err := http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -127,4 +128,37 @@ func TestRegisterWebhook(t *testing.T) {
 	if proxyRes.StatusCode != 200 {
 		t.Errorf("expected status code 200, got %v", proxyRes.StatusCode)
 	}
+
+	// Test lnurlpay info endpoint with invalid amount
+	u = fmt.Sprintf("http://%v/lnurlpay/%v/%v/invoice", serverAddress, serializedPubkey, keyHash)
+	response := testInvoiceRequest(t, u, serializedPubkey, keyHash)
+	if response.Status != "ERROR" {
+		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
+	}
+
+	// Test lnurlpay info endpoint with valid amount
+	u = fmt.Sprintf("http://%v/lnurlpay/%v/%v/invoice?amount=100", serverAddress, serializedPubkey, keyHash)
+	response = testInvoiceRequest(t, u, serializedPubkey, keyHash)
+	if response.Status == "ERROR" {
+		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
+	}
+}
+
+func testInvoiceRequest(t *testing.T, url string, serializedPubkey string, keyHash string) lnurl.LnurlPayStatus {
+	proxyRes, err := http.Get(url)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if proxyRes.StatusCode != 200 {
+		t.Errorf("expected status code 200, got %v", proxyRes.StatusCode)
+	}
+	body, err := io.ReadAll(proxyRes.Body)
+	if err != nil {
+		t.Errorf("failed to read lnurlpay invoice response body %v", err)
+	}
+	var response lnurl.LnurlPayStatus
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Errorf("failed to unmarhsal lnurlpay invoice response %v", err)
+	}
+	return response
 }

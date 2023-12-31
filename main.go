@@ -15,21 +15,15 @@ func main() {
 	// parse external URL
 	externalURL, err := parseURLFromEnv("SERVER_EXTERNAL_URL", "http://localhost:8080")
 	if err != nil {
-		log.Fatalf("failed to parse server URL %v", err)
+		log.Fatalf("failed to parse external server URL %v", err)
 	}
 
 	internalURL, err := parseURLFromEnv("SERVER_INTERNAL_URL", "http://localhost:8080")
 	if err != nil {
-		log.Fatalf("failed to parse server URL %v", err)
+		log.Fatalf("failed to parse internal server URL %v", err)
 	}
 
-	proxyEndpoints := map[string][]string{
-		"lnurlpay": {
-			"",                 // The initial endpoint for the node lnurlpay
-			"lnurlpay_invoice", // The lnurlpay endpoint to get the invoice
-		},
-	}
-	NewServer(internalURL, externalURL, storage, proxyEndpoints).Serve()
+	NewServer(internalURL, externalURL, storage).Serve()
 }
 
 func parseURLFromEnv(envKey string, defaultURL string) (*url.URL, error) {
@@ -37,9 +31,5 @@ func parseURLFromEnv(envKey string, defaultURL string) (*url.URL, error) {
 	if serverURLStr == "" {
 		serverURLStr = defaultURL
 	}
-	serverURL, err := url.Parse(serverURLStr)
-	if err != nil {
-		log.Fatalf("failed to parse server URL %v", err)
-	}
-	return serverURL, nil
+	return url.Parse(serverURLStr)
 }

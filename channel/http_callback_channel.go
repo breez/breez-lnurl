@@ -70,6 +70,16 @@ func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.Re
 	p.pendingRequests[reqID] = pendingRequest
 	p.Unlock()
 
+	defer func() {
+		p.Lock()
+		pendingRequest, ok := p.pendingRequests[reqID]
+		if ok {
+			close(pendingRequest.result)
+			delete(p.pendingRequests, reqID)
+		}
+		p.Unlock()
+	}()
+
 	httpRes, err := http.Post(url, "application/json", strings.NewReader(string(jsonBytes)))
 	if err != nil {
 		return "", err
@@ -91,7 +101,6 @@ func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.Re
 func (p *HttpCallbackChannel) OnResponse(reqID uint64, payload string) error {
 	p.Lock()
 	pendingRequest, ok := p.pendingRequests[reqID]
-	delete(p.pendingRequests, reqID)
 	p.Unlock()
 
 	if !ok {
@@ -113,7 +122,7 @@ func (l *HttpCallbackChannel) HandleResponse(w http.ResponseWriter, r *http.Requ
 	}
 	reqID, err := strconv.ParseUint(responseID, 10, 64)
 	if err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		http.Error(w, "invalid response", http.StatusBadRequest)
 		return
 	}
 	all, err := io.ReadAll(r.Body)

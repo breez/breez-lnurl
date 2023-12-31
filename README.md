@@ -27,14 +27,14 @@ This server application allows mobile apps that use the Breez SDK to register we
    ```
 
 ### Configuration
-There are two optional enviroment variables that can be set:
+There are two optional environment variables that can be set:
 - **SERVER_EXTERNAL_URL**: The url this server can be reached from the outside world.
 - **SERVER_INTERNAL_URL**: The internal url the server listens to.
 
 ### Running the Server
 Execute the command below to start the server:
 ```
-go run main.go
+go run .
 ```
 
 ## API Endpoints
@@ -45,6 +45,11 @@ go run main.go
   - Description: Registers a new webhook for the mobile app.
 
 - **LNURL Pay Endpoint:**
-  - Endpoint: `lnurlpay/pubkey/{key_hash}`
+  - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}`
   - Method: GET
   - Description: Handles LNURL pay requests, forwarding them to the corresponding mobile app webhook.
+
+- **LNURL Pay Endpoint:**
+  - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}/invoice?amount=<amount>`
+  - Method: GET
+  - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
