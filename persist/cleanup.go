@@ -10,7 +10,7 @@ type CleanupService struct {
 	store Store
 }
 
-// The interval to clean unused promises and buy registrations.
+// The interval to clean expired webhook urls.
 var CleanupInterval time.Duration = time.Hour
 
 // The expiry duration is the time until a non-refreshed webhook url expires.

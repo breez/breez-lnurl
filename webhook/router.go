@@ -23,8 +23,8 @@ type AddWebhookRequest struct {
 }
 
 func (w *AddWebhookRequest) Verify(pubkey string) error {
-	messgeToVerify := fmt.Sprintf("%v-%v-%v", w.Time, w.HookKey, w.Url)
-	verifiedPubkey, err := lightning.VerifyMessage([]byte(messgeToVerify), w.Signature)
+	messageToVerify := fmt.Sprintf("%v-%v-%v", w.Time, w.HookKey, w.Url)
+	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
 		return err
 	}
@@ -41,8 +41,8 @@ type RemoveWebhookRequest struct {
 }
 
 func (w *RemoveWebhookRequest) Verify(pubkey string) error {
-	messgeToVerify := fmt.Sprintf("%v-%v", w.Time, w.HookKey)
-	verifiedPubkey, err := lightning.VerifyMessage([]byte(messgeToVerify), w.Signature)
+	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.HookKey)
+	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
 		return err
 	}
