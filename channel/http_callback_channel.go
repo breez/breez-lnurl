@@ -24,7 +24,7 @@ type WebhookChannel interface {
 }
 
 type WebhookChannelRequestPayload struct {
-	Template string `json:"webhook_callback_message"`
+	Template string `json:"template"`
 	Data     struct {
 		CallbackURL    string `json:"callback_url"`
 		MessagePayload string `json:"message_payload"`
