@@ -54,7 +54,7 @@ go run .
   - Method: GET
   - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
 
-  - **Webhook Callback Endpoint:**
+- **Webhook Callback Endpoint:**
   - Endpoint: `/response/{responseID}`
   - Method: POST
   - Description: Handles webhook callback responses from the node.

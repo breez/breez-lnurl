@@ -57,7 +57,7 @@ func setupHookServer(t *testing.T) {
 		if err := json.Unmarshal(allBody, &payload); err != nil {
 			t.Errorf("unmarshal proxy payload, expected no error, got %v", err)
 		}
-		response, err := http.Post(payload.CallbackURL, "application/json", bytes.NewBuffer([]byte(`{"status": "ok"}`)))
+		response, err := http.Post(payload.Data.CallbackURL, "application/json", bytes.NewBuffer([]byte(`{"status": "ok"}`)))
 		if err != nil {
 			t.Errorf("failed to invoke hook callback %v", err)
 		}
