@@ -20,8 +20,8 @@ type LnurlPayStatus struct {
 }
 
 type LnurlPayWebhookPayload struct {
-	Template string `json:"template"`
-	Data     map[string]interface{}
+	Template string                 `json:"template"`
+	Data     map[string]interface{} `json:"data"`
 }
 
 func NewLnurlPayErrorResponse(reason string) LnurlPayStatus {
@@ -73,7 +73,7 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	request := LnurlPayWebhookPayload{
-		Template: "lnurlpay-info",
+		Template: "lnurlpay_info",
 	}
 	jsonBytes, err := json.Marshal(request)
 	if err != nil {
@@ -122,7 +122,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	request := LnurlPayWebhookPayload{
-		Template: "lnurlpay-invoice",
+		Template: "lnurlpay_invoice",
 		Data: map[string]interface{}{
 			"amount": amount,
 		},

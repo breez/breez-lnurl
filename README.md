@@ -44,12 +44,17 @@ go run .
   - payload: `{time: <seconds since epoch>, hook_key: "<hook key>", url: <webhook url>, signature: <signature of "time-hook_key-url">}`
   - Description: Registers a new webhook for the mobile app.
 
-- **LNURL Pay Endpoint:**
+- **LNURL Pay Info Endpoint:**
   - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}`
   - Method: GET
   - Description: Handles LNURL pay requests, forwarding them to the corresponding mobile app webhook.
 
-- **LNURL Pay Endpoint:**
+- **LNURL Pay Invoice Endpoint:**
   - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}/invoice?amount=<amount>`
   - Method: GET
   - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
+
+  - **Webhook Callback Endpoint:**
+  - Endpoint: `/response/{responseID}`
+  - Method: POST
+  - Description: Handles webhook callback responses from the node.
