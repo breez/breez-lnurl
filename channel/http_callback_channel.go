@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +21,7 @@ const (
 )
 
 type WebhookChannel interface {
-	SendRequest(url string, payload string, rw http.ResponseWriter) (string, error)
+	SendRequest(context context.Context, url string, payload string, rw http.ResponseWriter) (string, error)
 }
 
 type WebhookChannelRequestPayload struct {
@@ -32,12 +33,13 @@ type WebhookChannelRequestPayload struct {
 }
 
 type PendingRequest struct {
-	writer http.ResponseWriter
+	id     uint64
 	result chan string
 }
 
 type HttpCallbackChannel struct {
 	sync.Mutex
+	httpClient      *http.Client
 	callbackBaseURL string
 	random          *rand.Rand
 	pendingRequests map[uint64]*PendingRequest
@@ -46,6 +48,7 @@ type HttpCallbackChannel struct {
 func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCallbackChannel {
 
 	channel := &HttpCallbackChannel{
+		httpClient:      http.DefaultClient,
 		callbackBaseURL: callbackBaseURL,
 		random:          rand.New(rand.NewSource(time.Now().UnixNano())),
 		pendingRequests: make(map[uint64]*PendingRequest),
@@ -57,7 +60,7 @@ func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCal
 	return channel
 }
 
-func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.ResponseWriter) (string, error) {
+func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, payload string, rw http.ResponseWriter) (string, error) {
 	reqID := p.random.Uint64()
 	callbackURL := fmt.Sprintf("%s/%d", p.callbackBaseURL, reqID)
 	webhookPayload := WebhookChannelRequestPayload{Template: "webhook_callback_message", Data: struct {
@@ -70,24 +73,30 @@ func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.Re
 		return "", err
 	}
 	pendingRequest := &PendingRequest{
-		writer: rw,
+		id:     reqID,
 		result: make(chan string, 1),
 	}
 	p.Lock()
 	p.pendingRequests[reqID] = pendingRequest
 	p.Unlock()
 
+	// We only delete the request from the map and close the channel only if it was not deleted before.
 	defer func() {
 		p.Lock()
-		pendingRequest, ok := p.pendingRequests[reqID]
+		req, ok := p.pendingRequests[reqID]
 		if ok {
-			close(pendingRequest.result)
-			delete(p.pendingRequests, reqID)
+			p.deleteRequestAndClose(req)
 		}
 		p.Unlock()
 	}()
 
-	httpRes, err := http.Post(url, "application/json", strings.NewReader(string(jsonBytes)))
+	req, err := http.NewRequestWithContext(c, "POST", url, strings.NewReader(string(jsonBytes)))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Add("Content-Type", "application/json")
+
+	httpRes, err := p.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -97,23 +106,23 @@ func (p *HttpCallbackChannel) SendRequest(url string, payload string, rw http.Re
 	select {
 	case result := <-pendingRequest.result:
 		return result, nil
+	case <-c.Done():
+		return "", errors.New("canceled")
 	case <-time.After(callbackTimeout):
-		p.Lock()
-		delete(p.pendingRequests, reqID)
-		p.Unlock()
 		return "", errors.New("timeout")
 	}
 }
 
 func (p *HttpCallbackChannel) OnResponse(reqID uint64, payload string) error {
 	p.Lock()
+	defer p.Unlock()
 	pendingRequest, ok := p.pendingRequests[reqID]
-	p.Unlock()
-
 	if !ok {
 		return errors.New("unknown request id")
 	}
 	pendingRequest.result <- payload
+	// We only delete the request from the map and close the channel.
+	p.deleteRequestAndClose(pendingRequest)
 	return nil
 }
 
@@ -143,4 +152,9 @@ func (l *HttpCallbackChannel) HandleResponse(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (p *HttpCallbackChannel) deleteRequestAndClose(req *PendingRequest) {
+	delete(p.pendingRequests, req.id)
+	close(req.result)
 }

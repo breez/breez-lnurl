@@ -53,7 +53,7 @@ func setupHookServer(t *testing.T) {
 	callbackRouter := mux.NewRouter()
 	callbackRouter.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		allBody, _ := io.ReadAll(r.Body)
-		var payload channel.WebhookChannelChannelPayload
+		var payload channel.WebhookChannelRequestPayload
 		if err := json.Unmarshal(allBody, &payload); err != nil {
 			t.Errorf("unmarshal proxy payload, expected no error, got %v", err)
 		}

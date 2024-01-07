@@ -1,7 +1,6 @@
 package webhook
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -99,7 +98,7 @@ func (s *WebhooksRouter) set(w http.ResponseWriter, r *http.Request) {
 	h := sha256.New()
 	h.Write([]byte(addRequest.HookKey))
 
-	err := s.store.Set(context.Background(), persist.Webhook{
+	err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:      pubkey,
 		Url:         addRequest.Url,
 		HookKeyHash: hex.EncodeToString(h.Sum(nil)),
@@ -145,7 +144,7 @@ func (s *WebhooksRouter) remove(w http.ResponseWriter, r *http.Request) {
 	h := sha256.New()
 	h.Write([]byte(removeRequest.HookKey))
 
-	err := s.store.Remove(context.Background(), pubkey, hex.EncodeToString(h.Sum(nil)))
+	err := s.store.Remove(r.Context(), pubkey, hex.EncodeToString(h.Sum(nil)))
 	if err != nil {
 		log.Printf(
 			"failed to remove webhook for pubkey %v hookKey %v: %v",

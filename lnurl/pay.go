@@ -1,7 +1,6 @@
 package lnurl
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -62,7 +61,7 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := l.store.Get(context.Background(), pubkey, hookKeyHash)
+	webhook, err := l.store.Get(r.Context(), pubkey, hookKeyHash)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -80,7 +79,10 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	response, err := l.channel.SendRequest(webhook.Url, string(jsonBytes), w)
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, string(jsonBytes), w)
+	if r.Context().Err() != nil {
+		return
+	}
 	if err != nil {
 		log.Printf("failed to send request to webhook pubkey:%v, err:%v", pubkey, err)
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
@@ -111,7 +113,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := l.store.Get(context.Background(), pubkey, hookKeyHash)
+	webhook, err := l.store.Get(r.Context(), pubkey, hookKeyHash)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -132,7 +134,10 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	response, err := l.channel.SendRequest(webhook.Url, string(jsonBytes), w)
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, string(jsonBytes), w)
+	if r.Context().Err() != nil {
+		return
+	}
 	if err != nil {
 		log.Printf("failed to send request to webhook pubkey:%v, err:%v", pubkey, err)
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
