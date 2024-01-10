@@ -3,7 +3,9 @@ package lnurl
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"log"
@@ -39,12 +41,14 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 type LnurlPayRouter struct {
 	store   persist.Store
 	channel channel.WebhookChannel
+	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, store persist.Store, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
 		channel: channel,
+		rootURL: rootURL,
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}/{hookKeyHash}", lnurlPayRouter.HandleInfo).Methods("GET")
 	router.HandleFunc("/lnurlpay/{pubkey}/{hookKeyHash}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
@@ -71,8 +75,14 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	callbackURL := fmt.Sprintf("%v/lnurlpay/%v/%v/invoice", l.rootURL.String(), pubkey, hookKeyHash)
 	request := LnurlPayWebhookPayload{
 		Template: "lnurlpay_info",
+		Data: map[string]interface{}{
+			"lnurlpay_info": map[string]interface{}{
+				"callback_url": callbackURL,
+			},
+		},
 	}
 	jsonBytes, err := json.Marshal(request)
 	if err != nil {
@@ -126,7 +136,9 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 	request := LnurlPayWebhookPayload{
 		Template: "lnurlpay_invoice",
 		Data: map[string]interface{}{
-			"amount": amount,
+			"lnurlpay_invoice": map[string]interface{}{
+				"amount": amountNum,
+			},
 		},
 	}
 	jsonBytes, err := json.Marshal(request)

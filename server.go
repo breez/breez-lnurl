@@ -52,7 +52,7 @@ func initRootHandler(externalURL *url.URL, storage persist.Store) *mux.Router {
 	webhook.RegisterWebhookRouter(rootRouter, storage, webhookChannel)
 
 	// Routes to handle lnurl pay protocol.
-	lnurl.RegisterLnurlPayRouter(rootRouter, storage, webhookChannel)
+	lnurl.RegisterLnurlPayRouter(rootRouter, externalURL, storage, webhookChannel)
 
 	return rootRouter
 }

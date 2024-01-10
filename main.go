@@ -10,7 +10,10 @@ import (
 
 func main() {
 	// create the storage and start the server
-	storage := &persist.MemoryStore{}
+	storage, err := persist.NewPgStore(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalf("failed to create postgres store: %v", err)
+	}
 
 	// parse external URL
 	externalURL, err := parseURLFromEnv("SERVER_EXTERNAL_URL", "http://localhost:8080")

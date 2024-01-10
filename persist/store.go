@@ -6,14 +6,14 @@ import (
 )
 
 type Webhook struct {
-	Pubkey      string `json:"pubkey"`
-	HookKeyHash string `json:"hook_key_hash"`
-	Url         string `json:"url"`
+	Pubkey      string `json:"pubkey" db:"pubkey"`
+	HookKeyHash string `json:"hook_key_hash" db:"hook_key_hash"`
+	Url         string `json:"url" db:"url"`
 }
 
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
-	Get(ctx context.Context, pubkey, appKey string) (*Webhook, error)
+	Get(ctx context.Context, pubkey, hookKey string) (*Webhook, error)
 	Remove(ctx context.Context, pubkey, hookKey string) error
 	DeleteExpired(ctx context.Context, before time.Time) error
 }

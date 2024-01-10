@@ -97,11 +97,11 @@ func (s *WebhooksRouter) set(w http.ResponseWriter, r *http.Request) {
 	}
 	h := sha256.New()
 	h.Write([]byte(addRequest.HookKey))
-
+	hash := hex.EncodeToString(h.Sum(nil))
 	err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:      pubkey,
 		Url:         addRequest.Url,
-		HookKeyHash: hex.EncodeToString(h.Sum(nil)),
+		HookKeyHash: hash,
 	})
 
 	if err != nil {
@@ -115,6 +115,7 @@ func (s *WebhooksRouter) set(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	log.Printf("webhook added: pubkey:%v hash: %v\n", pubkey, hash)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -155,5 +156,6 @@ func (s *WebhooksRouter) remove(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	log.Printf("webhook removed: pubkey:%v hash: %v\n", pubkey, removeRequest.HookKey)
 	w.WriteHeader(http.StatusOK)
 }

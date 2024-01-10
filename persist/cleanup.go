@@ -15,7 +15,7 @@ var CleanupInterval time.Duration = time.Hour
 
 // The expiry duration is the time until a non-refreshed webhook url expires.
 // Currently set to 4 weeks.
-var ExpiryDuration time.Duration = time.Hour * 24 * 28
+var ExpiryDuration time.Duration = time.Hour * 24 * 7
 
 func NewCleanupService(store Store) *CleanupService {
 	return &CleanupService{

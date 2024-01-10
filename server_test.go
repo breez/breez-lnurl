@@ -44,7 +44,7 @@ func setupServer(storage persist.Store) {
 	}()
 	go func() {
 		if err := server.Serve(); err != nil {
-			fmt.Printf("server.Serve error: %v", err)
+			log.Printf("server.Serve error: %v", err)
 		}
 	}()
 }
