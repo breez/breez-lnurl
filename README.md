@@ -30,6 +30,7 @@ This server application allows mobile apps that use the Breez SDK to register we
 There are two optional environment variables that can be set:
 - **SERVER_EXTERNAL_URL**: The url this server can be reached from the outside world.
 - **SERVER_INTERNAL_URL**: The internal url the server listens to.
+- **DATABASE_URL**: The database url.
 
 ### Running the Server
 Execute the command below to start the server:
