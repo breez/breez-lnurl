@@ -21,12 +21,13 @@ const (
 )
 
 type WebhookChannel interface {
-	SendRequest(context context.Context, url string, payload string, rw http.ResponseWriter) (string, error)
+	SendRequest(context context.Context, url string, messageType string, payload string, rw http.ResponseWriter) (string, error)
 }
 
 type WebhookChannelRequestPayload struct {
-	Template string `json:"template"`
-	Data     struct {
+	Template    string `json:"template"`
+	MessageType string `json:"message_type"`
+	Data        struct {
 		CallbackURL    string `json:"callback_url"`
 		MessagePayload string `json:"message_payload"`
 	} `json:"data"`
@@ -60,13 +61,16 @@ func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCal
 	return channel
 }
 
-func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, payload string, rw http.ResponseWriter) (string, error) {
+func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, messageType string, payload string, rw http.ResponseWriter) (string, error) {
 	reqID := p.random.Uint64()
 	callbackURL := fmt.Sprintf("%s/%d", p.callbackBaseURL, reqID)
-	webhookPayload := WebhookChannelRequestPayload{Template: "webhook_callback_message", Data: struct {
-		CallbackURL    string "json:\"callback_url\""
-		MessagePayload string "json:\"message_payload\""
-	}{CallbackURL: callbackURL, MessagePayload: payload}}
+	webhookPayload := WebhookChannelRequestPayload{
+		Template:    "webhook_callback_message",
+		MessageType: messageType,
+		Data: struct {
+			CallbackURL    string "json:\"callback_url\""
+			MessagePayload string "json:\"message_payload\""
+		}{CallbackURL: callbackURL, MessagePayload: payload}}
 
 	jsonBytes, err := json.Marshal(webhookPayload)
 	if err != nil {

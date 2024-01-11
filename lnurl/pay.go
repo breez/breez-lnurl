@@ -89,7 +89,7 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	response, err := l.channel.SendRequest(r.Context(), webhook.Url, string(jsonBytes), w)
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, "lnurlpay_info", string(jsonBytes), w)
 	if r.Context().Err() != nil {
 		return
 	}
@@ -146,7 +146,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	response, err := l.channel.SendRequest(r.Context(), webhook.Url, string(jsonBytes), w)
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, "lnurlpay_invoice", string(jsonBytes), w)
 	if r.Context().Err() != nil {
 		return
 	}
