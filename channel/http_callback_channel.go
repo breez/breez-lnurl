@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -100,6 +101,7 @@ func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message
 	}
 	req.Header.Add("Content-Type", "application/json")
 
+	log.Printf("Sending webhook callback message %v", string(jsonBytes))
 	httpRes, err := p.httpClient.Do(req)
 	if err != nil {
 		return "", err
