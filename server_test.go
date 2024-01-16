@@ -53,11 +53,15 @@ func setupHookServer(t *testing.T) {
 	callbackRouter := mux.NewRouter()
 	callbackRouter.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		allBody, _ := io.ReadAll(r.Body)
-		var payload channel.WebhookChannelRequestPayload
+		var payload channel.WebhookMessage
 		if err := json.Unmarshal(allBody, &payload); err != nil {
 			t.Errorf("unmarshal proxy payload, expected no error, got %v", err)
 		}
-		response, err := http.Post(payload.Data.CallbackURL, "application/json", bytes.NewBuffer([]byte(`{"status": "ok"}`)))
+		replyURL, ok := payload.Data["reply_url"].(string)
+		if !ok {
+			t.Errorf("failed to extract reply_url %+v", payload)
+		}
+		response, err := http.Post(replyURL, "application/json", bytes.NewBuffer([]byte(`{"status": "ok"}`)))
 		if err != nil {
 			t.Errorf("failed to invoke hook callback %v", err)
 		}

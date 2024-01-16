@@ -21,17 +21,13 @@ const (
 	callbackTimeout = 30 * time.Second
 )
 
-type WebhookChannel interface {
-	SendRequest(context context.Context, url string, messageType string, payload string, rw http.ResponseWriter) (string, error)
+type WebhookMessage struct {
+	Template string                 `json:"template"`
+	Data     map[string]interface{} `json:"data"`
 }
 
-type WebhookChannelRequestPayload struct {
-	Template    string `json:"template"`
-	MessageType string `json:"message_type"`
-	Data        struct {
-		CallbackURL    string `json:"callback_url"`
-		MessagePayload string `json:"message_payload"`
-	} `json:"data"`
+type WebhookChannel interface {
+	SendRequest(context context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error)
 }
 
 type PendingRequest struct {
@@ -62,18 +58,11 @@ func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCal
 	return channel
 }
 
-func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, messageType string, payload string, rw http.ResponseWriter) (string, error) {
+func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error) {
 	reqID := p.random.Uint64()
 	callbackURL := fmt.Sprintf("%s/%d", p.callbackBaseURL, reqID)
-	webhookPayload := WebhookChannelRequestPayload{
-		Template:    "webhook_callback_message",
-		MessageType: messageType,
-		Data: struct {
-			CallbackURL    string "json:\"callback_url\""
-			MessagePayload string "json:\"message_payload\""
-		}{CallbackURL: callbackURL, MessagePayload: payload}}
-
-	jsonBytes, err := json.Marshal(webhookPayload)
+	message.Data["reply_url"] = callbackURL
+	jsonBytes, err := json.Marshal(message)
 	if err != nil {
 		return "", err
 	}

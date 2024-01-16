@@ -76,20 +76,14 @@ func (l *LnurlPayRouter) HandleInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	callbackURL := fmt.Sprintf("%v/lnurlpay/%v/%v/invoice", l.rootURL.String(), pubkey, hookKeyHash)
-	request := LnurlPayWebhookPayload{
+	message := channel.WebhookMessage{
 		Template: "lnurlpay_info",
 		Data: map[string]interface{}{
-			"lnurlpay_info": map[string]interface{}{
-				"callback_url": callbackURL,
-			},
+			"callback_url": callbackURL,
 		},
 	}
-	jsonBytes, err := json.Marshal(request)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	response, err := l.channel.SendRequest(r.Context(), webhook.Url, "lnurlpay_info", string(jsonBytes), w)
+
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, message, w)
 	if r.Context().Err() != nil {
 		return
 	}
@@ -133,20 +127,13 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	request := LnurlPayWebhookPayload{
+	message := channel.WebhookMessage{
 		Template: "lnurlpay_invoice",
 		Data: map[string]interface{}{
-			"lnurlpay_invoice": map[string]interface{}{
-				"amount": amountNum,
-			},
+			"amount": amountNum,
 		},
 	}
-	jsonBytes, err := json.Marshal(request)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	response, err := l.channel.SendRequest(r.Context(), webhook.Url, "lnurlpay_invoice", string(jsonBytes), w)
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, message, w)
 	if r.Context().Err() != nil {
 		return
 	}
