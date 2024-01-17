@@ -46,13 +46,13 @@ func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 	return nil
 }
 
-type UnegisterLnurlPayRequest struct {
+type UnregisterLnurlPayRequest struct {
 	Time      int64  `json:"time"`
 	HookKey   string `json:"hook_key"`
 	Signature string `json:"signature"`
 }
 
-func (w *UnegisterLnurlPayRequest) Verify(pubkey string) error {
+func (w *UnregisterLnurlPayRequest) Verify(pubkey string) error {
 	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
 		return errors.New("invalid time")
 	}
@@ -109,7 +109,7 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 }
 
 /*
-Set adds a regisration for a given pubkey and a unique identifier.
+Register adds a registration for a given pubkey and a unique identifier.
 The key enables the caller to replace existing hook without deleting it.
 */
 func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
@@ -170,10 +170,10 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
-Remove deletes a regisration for a given pubkey and a unique identifier.
+Unregister deletes a registration for a given pubkey and a unique identifier.
 */
 func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
-	var removeRequest UnegisterLnurlPayRequest
+	var removeRequest UnregisterLnurlPayRequest
 	if err := json.NewDecoder(r.Body).Decode(&removeRequest); err != nil {
 		log.Printf("json.NewDecoder.Decode error: %v", err)
 		http.Error(w, "invalid json", http.StatusBadRequest)
