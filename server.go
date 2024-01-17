@@ -9,7 +9,6 @@ import (
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/lnurl"
 	"github.com/breez/breez-lnurl/persist"
-	"github.com/breez/breez-lnurl/webhook"
 	"github.com/gorilla/mux"
 )
 
@@ -47,9 +46,6 @@ func initRootHandler(externalURL *url.URL, storage persist.Store) *mux.Router {
 	// This specific channel handles that by invoking the registered webhook to reach the node
 	// providing a callback URL to the node.
 	webhookChannel := channel.NewHttpCallbackChannel(rootRouter, fmt.Sprintf("%v/response", externalURL.String()))
-
-	// Routes to manage webhooks.
-	webhook.RegisterWebhookRouter(rootRouter, storage, webhookChannel)
 
 	// Routes to handle lnurl pay protocol.
 	lnurl.RegisterLnurlPayRouter(rootRouter, externalURL, storage, webhookChannel)
