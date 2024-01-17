@@ -17,7 +17,6 @@ import (
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/lnurl"
 	"github.com/breez/breez-lnurl/persist"
-	"github.com/breez/breez-lnurl/webhook"
 	"github.com/breez/lspd/lightning"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -98,14 +97,14 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("failed to sign signature %v", err)
 	}
 	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
-	addWebhookPayload, _ := json.Marshal(webhook.AddWebhookRequest{
-		Time:      time,
-		HookKey:   hookKey,
-		Url:       url,
-		Signature: zbase32.EncodeToString(sig),
+	addWebhookPayload, _ := json.Marshal(lnurl.RegisterLnurlPayRequest{
+		Time:       time,
+		HookKey:    hookKey,
+		WebhookUrl: url,
+		Signature:  zbase32.EncodeToString(sig),
 	})
 
-	httpRes, err := http.Post(fmt.Sprintf("http://%v/webhooks/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
+	httpRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
