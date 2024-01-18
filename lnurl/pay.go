@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"log"
 
@@ -30,6 +32,9 @@ type RegisterLnurlPayResponse struct {
 }
 
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+		return errors.New("invalid time")
+	}
 	messageToVerify := fmt.Sprintf("%v-%v-%v", w.Time, w.HookKey, w.WebhookUrl)
 	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
@@ -48,6 +53,9 @@ type UnregisterLnurlPayRequest struct {
 }
 
 func (w *UnregisterLnurlPayRequest) Verify(pubkey string) error {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+		return errors.New("invalid time")
+	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.HookKey)
 	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
