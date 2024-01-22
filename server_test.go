@@ -25,7 +25,6 @@ import (
 )
 
 const (
-	hookKey           = "456"
 	serverAddress     = "localhost:8080"
 	hookServerAddress = "localhost:8085"
 	testFeature       = "testFeature"
@@ -83,7 +82,7 @@ func TestRegisterWebhook(t *testing.T) {
 	// Test adding webhook
 	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
 	time := time.Now().Unix()
-	messgeToSign := fmt.Sprintf("%v-%v-%v", time, hookKey, url)
+	messgeToSign := fmt.Sprintf("%v-%v", time, url)
 	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 	first := sha256.Sum256([]byte(msg))
 	second := sha256.Sum256(first[:])
@@ -99,7 +98,6 @@ func TestRegisterWebhook(t *testing.T) {
 	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 	addWebhookPayload, _ := json.Marshal(lnurl.RegisterLnurlPayRequest{
 		Time:       time,
-		HookKey:    hookKey,
 		WebhookUrl: url,
 		Signature:  zbase32.EncodeToString(sig),
 	})
@@ -112,18 +110,13 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	h := sha256.New()
-	if _, err := h.Write([]byte(hookKey)); err != nil {
-		t.Errorf("failed hash key %v", err)
-	}
-	keyHash := hex.EncodeToString(h.Sum(nil))
-	webhook, _ := storage.Get(context.Background(), serializedPubkey, keyHash)
+	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
 
 	// Test lnurlpay info endpoint
-	u := fmt.Sprintf("http://%v/lnurlpay/%v/%v", serverAddress, serializedPubkey, keyHash)
+	u := fmt.Sprintf("http://%v/.well-known/lnurlp/%v", serverAddress, serializedPubkey)
 	proxyRes, err := http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -133,21 +126,21 @@ func TestRegisterWebhook(t *testing.T) {
 	}
 
 	// Test lnurlpay info endpoint with invalid amount
-	u = fmt.Sprintf("http://%v/lnurlpay/%v/%v/invoice", serverAddress, serializedPubkey, keyHash)
-	response := testInvoiceRequest(t, u, serializedPubkey, keyHash)
+	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice", serverAddress, serializedPubkey)
+	response := testInvoiceRequest(t, u, serializedPubkey)
 	if response.Status != "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
 
 	// Test lnurlpay info endpoint with valid amount
-	u = fmt.Sprintf("http://%v/lnurlpay/%v/%v/invoice?amount=100", serverAddress, serializedPubkey, keyHash)
-	response = testInvoiceRequest(t, u, serializedPubkey, keyHash)
+	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice?amount=100", serverAddress, serializedPubkey)
+	response = testInvoiceRequest(t, u, serializedPubkey)
 	if response.Status == "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
 }
 
-func testInvoiceRequest(t *testing.T, url string, serializedPubkey string, keyHash string) lnurl.LnurlPayStatus {
+func testInvoiceRequest(t *testing.T, url string, serializedPubkey string) lnurl.LnurlPayStatus {
 	proxyRes, err := http.Get(url)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)

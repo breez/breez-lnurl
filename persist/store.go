@@ -6,15 +6,14 @@ import (
 )
 
 type Webhook struct {
-	Pubkey      string `json:"pubkey" db:"pubkey"`
-	HookKeyHash string `json:"hook_key_hash" db:"hook_key_hash"`
-	Url         string `json:"url" db:"url"`
+	Pubkey string `json:"pubkey" db:"pubkey"`
+	Url    string `json:"url" db:"url"`
 }
 
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
-	Get(ctx context.Context, pubkey, hookKey string) (*Webhook, error)
-	Remove(ctx context.Context, pubkey, hookKey string) error
+	GetLastUpdated(ctx context.Context, pubkey string) (*Webhook, error)
+	Remove(ctx context.Context, pubkey, url string) error
 	DeleteExpired(ctx context.Context, before time.Time) error
 }
 
@@ -25,27 +24,27 @@ type MemoryStore struct {
 func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) error {
 	var hooks []Webhook
 	for _, hook := range m.webhooks {
-		if hook.Pubkey == webhook.Pubkey && hook.HookKeyHash == webhook.HookKeyHash {
+		if hook.Pubkey == webhook.Pubkey && hook.Url == webhook.Url {
 			continue
 		}
 		hooks = append(hooks, hook)
 	}
-	m.webhooks = append(hooks, webhook)
+	m.webhooks = append([]Webhook{webhook}, hooks...)
 	return nil
 }
 
-func (m *MemoryStore) Get(ctx context.Context, pubkey, hookKeyHash string) (*Webhook, error) {
+func (m *MemoryStore) GetLastUpdated(ctx context.Context, pubkey string) (*Webhook, error) {
 	for _, hook := range m.webhooks {
-		if hook.Pubkey == pubkey && hook.HookKeyHash == hookKeyHash {
+		if hook.Pubkey == pubkey {
 			return &hook, nil
 		}
 	}
 	return nil, nil
 }
-func (m *MemoryStore) Remove(ctx context.Context, pubkey, hookKey string) error {
+func (m *MemoryStore) Remove(ctx context.Context, pubkey, url string) error {
 	var hooks []Webhook
 	for _, hook := range m.webhooks {
-		if hook.Pubkey == pubkey && hook.HookKeyHash == hookKey {
+		if hook.Pubkey == pubkey && hook.Url == url {
 			continue
 		}
 		hooks = append(hooks, hook)
