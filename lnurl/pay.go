@@ -102,6 +102,7 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
+	router.HandleFunc("/lnurlp/{lightningAddressUser}", lnurlPayRouter.HandleLightningAddress).Methods("GET")
 	router.HandleFunc("/.well-known/lnurlp/{lightningAddressUser}", lnurlPayRouter.HandleLightningAddress).Methods("GET")
 	router.HandleFunc("/lnurlpay/{lightningAddressUser}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
 }
@@ -148,7 +149,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("registration added: pubkey:%v\n", pubkey)
-	lnurl, err := encodeLnurl(fmt.Sprintf("%v/.well-known/lnurlp/%v", s.rootURL, pubkey))
+	lnurl, err := encodeLnurl(fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
