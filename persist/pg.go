@@ -28,46 +28,40 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) error {
 		return err
 	}
 
-	hookKeyHash, err := hex.DecodeString(webhook.HookKeyHash)
-	if err != nil {
-		return err
-	}
-
 	now := time.Now().UnixMicro()
-	_, err = s.pool.Exec(
+	res, err := s.pool.Exec(
 		ctx,
-		`INSERT INTO public.lnurl_webhooks (pubkey, hook_key_hash, url, created_at, refreshed_at)
-		 values ($1, $2, $3, $4, $5)
-		 ON CONFLICT (pubkey, hook_key_hash) DO UPDATE SET url=$3, refreshed_at = $5`,
+		`INSERT INTO public.lnurl_webhooks (pubkey, url, created_at, refreshed_at)
+		 values ($1, $2, $3, $4)		 
+		 ON CONFLICT (pubkey, url) DO UPDATE SET url=$2, refreshed_at = $4`,
 		pk,
-		hookKeyHash,
 		webhook.Url,
 		now,
 		now,
 	)
-
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return fmt.Errorf("failed to set webhook for pubkey: %v", webhook.Pubkey)
+	}
 	return err
 }
 
-func (s *PgStore) Get(ctx context.Context, pubkey, hookKeyHash string) (*Webhook, error) {
+func (s *PgStore) GetLastUpdated(ctx context.Context, pubkey string) (*Webhook, error) {
 	pk, err := hex.DecodeString(pubkey)
-	if err != nil {
-		return nil, err
-	}
-
-	rawKeyHash, err := hex.DecodeString(hookKeyHash)
 	if err != nil {
 		return nil, err
 	}
 
 	rows, err := s.pool.Query(
 		ctx,
-		`SELECT encode(pubkey,'hex') pubkey, encode(hook_key_hash,'hex') hook_key_hash, url 
+		`SELECT encode(pubkey,'hex') pubkey, url 
 		 FROM public.lnurl_webhooks
-		 WHERE pubkey = $1 and hook_key_hash = $2`,
+		 WHERE pubkey = $1 order by refreshed_at desc limit 1`,
 		pk,
-		rawKeyHash,
 	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -77,18 +71,13 @@ func (s *PgStore) Get(ctx context.Context, pubkey, hookKeyHash string) (*Webhook
 		return nil, err
 	}
 	if len(webhooks) != 1 {
-		return nil, fmt.Errorf("unexpected webhooks count for pubkey: %v and hook_key_hash: %v", pubkey, hookKeyHash)
+		return nil, fmt.Errorf("unexpected webhooks count for pubkey: %v", pubkey)
 	}
 	return &webhooks[0], nil
 }
 
-func (s *PgStore) Remove(ctx context.Context, pubkey, hookKey string) error {
+func (s *PgStore) Remove(ctx context.Context, pubkey, url string) error {
 	pk, err := hex.DecodeString(pubkey)
-	if err != nil {
-		return err
-	}
-
-	hookKeyHash, err := hex.DecodeString(hookKey)
 	if err != nil {
 		return err
 	}
@@ -96,9 +85,9 @@ func (s *PgStore) Remove(ctx context.Context, pubkey, hookKey string) error {
 	_, err = s.pool.Exec(
 		ctx,
 		`DELETE FROM public.lnurl_webhooks
-		 WHERE pubkey = $1 and hook_key_hash = $2`,
+		 WHERE pubkey = $1 and url = $2`,
 		pk,
-		hookKeyHash,
+		url,
 	)
 
 	return err
