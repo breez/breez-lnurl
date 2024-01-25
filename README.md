@@ -5,8 +5,8 @@
 This server application allows mobile apps that use the Breez SDK to register webhooks and exposes an LNURL pay endpoint for that app. It also acts as a bridge between the mobile app and payer.
 
 ## How it works?
-- **Webhook Registration**: A mobile app registers a webhook to be reached by the server. The webhook is registered under a specific key and node pubkey. The server stores the key hash and the webhook details in a database.
-- **LNURL Pay Endpoint**: The server exposes an LNURL pay endpoint for the mobile app (lnurlpay/pubkey/key_hash).
+- **lnurlpay Registration**: A mobile app registers a webhook to be reached by the server. The webhook is registered under a specific node pubkey. The server stores the pubkey and the webhook details in a database.
+- **LNURL Pay Endpoint**: The server exposes an LNURL pay endpoint for the mobile app (lnurlp/pubkey).
 - **Bridge**: When a payer starts the lnurl pay flow, the server receives the request and forwards it to the mobile app's webhook, providing a callback. The mobile app processes the request and responds via the callback. The server matches the response to the request and returns it to the payer.
 
 ## Getting Started
@@ -40,18 +40,18 @@ go run .
 
 ## API Endpoints
 - **Register LNURL Webhook:**
-  - Endpoint: `/webhooks/{pubkey}`
+  - Endpoint: `/lnurlpay/{pubkey}`
   - Method: POST
-  - payload: `{time: <seconds since epoch>, hook_key: "<hook key>", url: <webhook url>, signature: <signature of "time-hook_key-url">}`
+  - payload: `{time: <seconds since epoch>,  url: <webhook url>, signature: <signature of "time-url">}`
   - Description: Registers a new webhook for the mobile app.
 
 - **LNURL Pay Info Endpoint:**
-  - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}`
+  - Endpoint: `lnurlp/{pubkey}/`
   - Method: GET
   - Description: Handles LNURL pay requests, forwarding them to the corresponding mobile app webhook.
 
 - **LNURL Pay Invoice Endpoint:**
-  - Endpoint: `lnurlpay/{pubkey}/{hook_key_hash}/invoice?amount=<amount>`
+  - Endpoint: `lnurlpay/{pubkey}/invoice?amount=<amount>`
   - Method: GET
   - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
 
