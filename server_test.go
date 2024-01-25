@@ -116,7 +116,7 @@ func TestRegisterWebhook(t *testing.T) {
 	}
 
 	// Test lnurlpay info endpoint
-	u := fmt.Sprintf("http://%v/.well-known/lnurlp/%v", serverAddress, serializedPubkey)
+	u := fmt.Sprintf("http://%v/lnurlp/%v", serverAddress, serializedPubkey)
 	proxyRes, err := http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)

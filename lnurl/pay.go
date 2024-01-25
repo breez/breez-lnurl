@@ -102,9 +102,8 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
-	router.HandleFunc("/lnurlp/{lightningAddressUser}", lnurlPayRouter.HandleLightningAddress).Methods("GET")
-	router.HandleFunc("/.well-known/lnurlp/{lightningAddressUser}", lnurlPayRouter.HandleLightningAddress).Methods("GET")
-	router.HandleFunc("/lnurlpay/{lightningAddressUser}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
+	router.HandleFunc("/lnurlp/{pubkey}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
+	router.HandleFunc("/lnurlpay/{pubkey}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
 }
 
 /*
@@ -204,18 +203,18 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 }
 
 /*
-HandleLightningAddress handles the initial request of lnurl pay protocol.
+HandleLnurlPay handles the initial request of lnurl pay protocol.
 */
-func (l *LnurlPayRouter) HandleLightningAddress(w http.ResponseWriter, r *http.Request) {
+func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	lightningAddressUser, ok := params["lightningAddressUser"]
+	pubkey, ok := params["pubkey"]
 	if !ok {
 		log.Println("invalid params, err")
 		http.Error(w, "unexpected error", http.StatusInternalServerError)
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), lightningAddressUser)
+	webhook, err := l.store.GetLastUpdated(r.Context(), pubkey)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -250,7 +249,7 @@ HandleInvoice handles the seconds request of lnurl pay protocol.
 */
 func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	lightningAddressUser, ok := params["lightningAddressUser"]
+	pubkey, ok := params["pubkey"]
 	if !ok {
 		log.Println("invalid params, err")
 		http.Error(w, "unexpected error", http.StatusInternalServerError)
@@ -268,7 +267,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), lightningAddressUser)
+	webhook, err := l.store.GetLastUpdated(r.Context(), pubkey)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
