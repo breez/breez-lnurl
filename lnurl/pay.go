@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -20,20 +21,25 @@ import (
 )
 
 type RegisterLnurlPayRequest struct {
-	Time       int64  `json:"time"`
-	WebhookUrl string `json:"webhook_url"`
-	Signature  string `json:"signature"`
+	Username   *string `json:"username"`
+	Time       int64   `json:"time"`
+	WebhookUrl string  `json:"webhook_url"`
+	Signature  string  `json:"signature"`
 }
 
 type RegisterLnurlPayResponse struct {
-	Lnurl string `json:"lnurl"`
+	Lnurl            string  `json:"lnurl"`
+	LightningAddress *string `json:"lightning_address,omitempty"`
 }
 
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
-	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
-		return errors.New("invalid time")
-	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
+	if w.Username != nil {
+		if ok, err := regexp.MatchString("^\\w+$", *w.Username); !ok || err != nil {
+			return fmt.Errorf("invalid username")
+		}
+		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, *w.Username)
+	}
 	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
 		return err
@@ -102,8 +108,9 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
-	router.HandleFunc("/lnurlp/{pubkey}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
-	router.HandleFunc("/lnurlpay/{pubkey}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
+	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
+	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
+	router.HandleFunc("/lnurlpay/{identifier}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
 }
 
 /*
@@ -130,9 +137,10 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
-	err := s.store.Set(r.Context(), persist.Webhook{
-		Pubkey: pubkey,
-		Url:    addRequest.WebhookUrl,
+	webhook, err := s.store.Set(r.Context(), persist.Webhook{
+		Pubkey:   pubkey,
+		Username: addRequest.Username,
+		Url:      addRequest.WebhookUrl,
 	})
 
 	if err != nil {
@@ -153,8 +161,14 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	var lightningAddress *string
+	if webhook.Username != nil {
+		lnAddr := fmt.Sprintf("%v@%v", *webhook.Username, s.rootURL.Host)
+		lightningAddress = &lnAddr
+	}
 	body, err := json.Marshal(RegisterLnurlPayResponse{
-		Lnurl: lnurl,
+		Lnurl:            lnurl,
+		LightningAddress: lightningAddress,
 	})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -207,14 +221,14 @@ HandleLnurlPay handles the initial request of lnurl pay protocol.
 */
 func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	pubkey, ok := params["pubkey"]
+	identifier, ok := params["identifier"]
 	if !ok {
 		log.Println("invalid params, err")
 		http.Error(w, "unexpected error", http.StatusInternalServerError)
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), pubkey)
+	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -224,7 +238,7 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	callbackURL := fmt.Sprintf("%v/lnurlpay/%v/invoice", l.rootURL.String(), webhook.Pubkey)
+	callbackURL := fmt.Sprintf("%v/lnurlpay/%v/invoice", l.rootURL.String(), identifier)
 	message := channel.WebhookMessage{
 		Template: "lnurlpay_info",
 		Data: map[string]interface{}{
@@ -249,7 +263,7 @@ HandleInvoice handles the seconds request of lnurl pay protocol.
 */
 func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	pubkey, ok := params["pubkey"]
+	identifier, ok := params["identifier"]
 	if !ok {
 		log.Println("invalid params, err")
 		http.Error(w, "unexpected error", http.StatusInternalServerError)
@@ -267,7 +281,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), pubkey)
+	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return

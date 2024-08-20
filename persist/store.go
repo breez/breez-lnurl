@@ -6,13 +6,31 @@ import (
 )
 
 type Webhook struct {
-	Pubkey string `json:"pubkey" db:"pubkey"`
-	Url    string `json:"url" db:"url"`
+	Pubkey   string `json:"pubkey" db:"pubkey"`
+	Username *string `json:"username" db:"username"`
+	Url      string `json:"url" db:"url"`
+}
+
+type PubkeyUsername struct {
+	Pubkey   string `json:"pubkey" db:"pubkey"`
+	Username string `json:"username" db:"username"`
+}
+
+func (w Webhook) Compare(identifier string) bool {
+	if w.Pubkey == identifier {
+		return true
+	}
+
+	if w.Username == nil {
+		return false
+	}
+
+	return *w.Username == identifier
 }
 
 type Store interface {
-	Set(ctx context.Context, webhook Webhook) error
-	GetLastUpdated(ctx context.Context, pubkey string) (*Webhook, error)
+	Set(ctx context.Context, webhook Webhook) (*Webhook, error)
+	GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error)
 	Remove(ctx context.Context, pubkey, url string) error
 	DeleteExpired(ctx context.Context, before time.Time) error
 }
@@ -21,7 +39,7 @@ type MemoryStore struct {
 	webhooks []Webhook
 }
 
-func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) error {
+func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 	var hooks []Webhook
 	for _, hook := range m.webhooks {
 		if hook.Pubkey == webhook.Pubkey && hook.Url == webhook.Url {
@@ -30,17 +48,18 @@ func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) error {
 		hooks = append(hooks, hook)
 	}
 	m.webhooks = append([]Webhook{webhook}, hooks...)
-	return nil
+	return &webhook, nil
 }
 
-func (m *MemoryStore) GetLastUpdated(ctx context.Context, pubkey string) (*Webhook, error) {
+func (m *MemoryStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
 	for _, hook := range m.webhooks {
-		if hook.Pubkey == pubkey {
+		if hook.Compare(identifier) {
 			return &hook, nil
 		}
 	}
 	return nil, nil
 }
+
 func (m *MemoryStore) Remove(ctx context.Context, pubkey, url string) error {
 	var hooks []Webhook
 	for _, hook := range m.webhooks {
