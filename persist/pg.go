@@ -3,13 +3,11 @@ package persist
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,42 +28,26 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubkeyUsername, err := s.getPubkeyUsername(ctx, pk)
-	if err != nil {
-		return nil, err
-	}
 	if webhook.Username != nil {
 		// The set request includes a username. Insert the username for the pubkey if no record
 		// was found, otherwise update the pubkey's record with the new username. 
 		// If another record already uses this username, there will be an error returned.
 		username := strings.ToLower(*webhook.Username)
-		var res pgconn.CommandTag
-		if pubkeyUsername == nil {
-			res, err = s.pool.Exec(
-				ctx,
-				`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username) values ($1, $2)`,
-				pk,
-				username,
-			)
-			webhook.Username = &username
-		} else {
-			res, err = s.pool.Exec(
-				ctx,
-				`UPDATE public.lnurl_pubkey_usernames SET username = $2 WHERE pubkey = $1`,
-				pk,
-				username,
-			)
-			pubkeyUsername.Username = username
-		}
+		res, err := s.pool.Exec(
+			ctx,
+			`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username) 
+			 values ($1, $2)
+			 ON CONFLICT (pubkey) DO UPDATE SET username = $2`,
+			pk,
+			username,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("invalid username: %v", *webhook.Username)
+			return nil, fmt.Errorf("invalid username: %v", username)
 		}
 		if res.RowsAffected() == 0 {
 			return nil, fmt.Errorf("failed to set username for pubkey: %v", webhook.Pubkey)
 		}
-	}
-	if pubkeyUsername != nil {
-		webhook.Username = &pubkeyUsername.Username
+		webhook.Username = &username
 	}
 
 	now := time.Now().UnixMicro()
@@ -145,27 +127,6 @@ func (s *PgStore) DeleteExpired(
 		before.UnixMicro())
 
 	return err
-}
-
-func (s *PgStore) getPubkeyUsername(ctx context.Context, pubkey []byte) (*PubkeyUsername, error) {
-	rows, err := s.pool.Query(
-		ctx,
-		`SELECT encode(pubkey, 'hex') pubkey, username
-		 FROM public.lnurl_pubkey_usernames
-		 WHERE pubkey = $1`,
-		pubkey,
-	)
-	if err != nil {
-		return nil, err
-	}
-	pubkeyUsername, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[PubkeyUsername])
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &pubkeyUsername, nil
 }
 
 func pgConnect(databaseUrl string) (*pgxpool.Pool, error) {

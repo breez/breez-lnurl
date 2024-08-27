@@ -41,17 +41,16 @@ func TestPgStore(t *testing.T) {
 	})
 	assert.NilError(t, err, "should not be able to use same url for different pubkey")
 	assert.Check(t, hook != nil, "hook should not be nil")
-	assert.Check(t, hook.Username == nil, "hook should be nil")
+	assert.Check(t, hook.Username == nil, "username should be nil")
 
-	// Test that we are able to update the same user registration for the same pubkey
-	// and the username is still set.
+	// Test that we are able to update the same user registration for the same pubkey.
 	hook, err = pgStore.Set(context.Background(), Webhook{
 		Pubkey: "02c811e575be2df47d8b48dab3d3f1c9b0f6e16d0d40b5ed78253308fc2bd7170d",
 		Url:    "http://example.com",
 	})
 	assert.NilError(t, err, "should be able to update the url for the same pubkey")
 	assert.Check(t, hook != nil, "hook should not be nil")
-	assert.Equal(t, *hook.Username, "testuser", "username should be testuser")
+	assert.Check(t, hook.Username == nil, "username should be nil")
 
 	// Test that we are able to update the same user registration with a different username.
 	differenttestuser := "differenttestuser"
@@ -70,7 +69,7 @@ func TestPgStore(t *testing.T) {
 		Url:    "http://example.com",
 		Username: &differenttestuser,
 	})
-	assert.ErrorContains(t, err, "duplicate key value violates unique constraint")
+	assert.ErrorContains(t, err, "invalid username")
 	assert.Check(t, hook == nil, "hook should be nil")
 
 	assert.NilError(t, pgStore.DeleteExpired(context.Background(), time.Now()), "failed to delete expired")
