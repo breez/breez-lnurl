@@ -20,6 +20,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
+const (
+	// https://datatracker.ietf.org/doc/html/rfc5322#section-3.4.1
+	// https://stackoverflow.com/a/201378
+	USERNAME_VALIDATION_REGEX = "^(?:[a-zA-Z0-9!#$%&'*+\\/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+\\/=?^_`{|}~-]+)*|\"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")$"
+)
+
 type RegisterLnurlPayRequest struct {
 	Username   *string `json:"username"`
 	Time       int64   `json:"time"`
@@ -35,7 +41,7 @@ type RegisterLnurlPayResponse struct {
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
 	if w.Username != nil {
-		if ok, err := regexp.MatchString("^\\w+$", *w.Username); !ok || err != nil {
+		if ok, err := regexp.MatchString(USERNAME_VALIDATION_REGEX, *w.Username); !ok || err != nil {
 			return fmt.Errorf("invalid username")
 		}
 		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, *w.Username)
