@@ -16,7 +16,8 @@ import (
 )
 
 func TestPayRegisterLnurlPayRequestValidUsername(t *testing.T) {
-	url := "http://localhost:8080/callback"
+	domain := "lnurl.domain"
+	url := fmt.Sprintf("http://%v/callback", domain)
 	time := time.Now().Unix()
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
@@ -26,7 +27,14 @@ func TestPayRegisterLnurlPayRequestValidUsername(t *testing.T) {
 	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 
 	// Test valid usernames
-	validUsernames := []string{"testuser", "test.user", "test#user", "test{user}", "test+user"}
+	validUsernames := []string{
+		"testuser",
+		"test.user",
+		"test#user",
+		"test{user}",
+		"test+user",
+		"this________username________is________not________too________long",
+	}
 
 	for _, validUsername := range validUsernames {
 		messgeToSign := fmt.Sprintf("%v-%v-%v", time, url, validUsername)
@@ -50,7 +58,8 @@ func TestPayRegisterLnurlPayRequestValidUsername(t *testing.T) {
 }
 
 func TestPayRegisterLnurlPayRequestInvalidUsername(t *testing.T) {
-	url := "http://localhost:8080/callback"
+	domain := "lnurl.domain"
+	url := fmt.Sprintf("http://%v/callback", domain)
 	time := time.Now().Unix()
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
@@ -60,7 +69,14 @@ func TestPayRegisterLnurlPayRequestInvalidUsername(t *testing.T) {
 	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 
 	// Test invalid usernames
-	invalidUsernames := []string{"testuser.", ".testuser", "test..user", "test(user", "test≠user"}
+	invalidUsernames := []string{
+		"testuser.",
+		".testuser",
+		"test..user",
+		"test(user",
+		"test≠user",
+		"this___________username___________is___________too___________long",
+	}
 
 	for _, invalidUsername := range invalidUsernames {
 		messgeToSign := fmt.Sprintf("%v-%v-%v", time, url, invalidUsername)
