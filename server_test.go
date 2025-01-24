@@ -79,27 +79,24 @@ func TestRegisterWebhook(t *testing.T) {
 	setupServer(storage)
 	setupHookServer(t)
 
-	// Test adding webhook
-	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
-	time := time.Now().Unix()
-	messgeToSign := fmt.Sprintf("%v-%v", time, url)
-	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
-	first := sha256.Sum256([]byte(msg))
-	second := sha256.Sum256(first[:])
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
 		t.Errorf("failed to generate private key %v", err)
 	}
 	pubkey := privKey.PubKey()
-	sig, err := ecdsa.SignCompact(privKey, second[:], true)
+	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
+
+	// Test adding webhook
+	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
+	time := time.Now().Unix()
+	signature, err := signMessage(fmt.Sprintf("%v-%v", time, url), privKey)
 	if err != nil {
 		t.Errorf("failed to sign signature %v", err)
 	}
-	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 	addWebhookPayload, _ := json.Marshal(lnurl.RegisterLnurlPayRequest{
 		Time:       time,
 		WebhookUrl: url,
-		Signature:  zbase32.EncodeToString(sig),
+		Signature:  *signature,
 	})
 
 	httpRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
@@ -115,9 +112,23 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("expected webhook to be registered")
 	}
 
+	// Test recovering
+	recoverPayload, _ := json.Marshal(lnurl.UnregisterRecoverLnurlPayRequest{
+		Time:       time,
+		WebhookUrl: url,
+		Signature:  *signature,
+	})
+	proxyRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v/recover", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(recoverPayload))
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if proxyRes.StatusCode != 200 {
+		t.Errorf("expected status code 200, got %v", proxyRes.StatusCode)
+	}
+
 	// Test lnurlpay info endpoint
 	u := fmt.Sprintf("http://%v/lnurlp/%v", serverAddress, serializedPubkey)
-	proxyRes, err := http.Get(u)
+	proxyRes, err = http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -127,14 +138,14 @@ func TestRegisterWebhook(t *testing.T) {
 
 	// Test lnurlpay info endpoint with invalid amount
 	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice", serverAddress, serializedPubkey)
-	response := testInvoiceRequest(t, u, serializedPubkey)
+	response := testInvoiceRequest(t, u)
 	if response.Status != "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
 
 	// Test lnurlpay info endpoint with valid amount
 	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice?amount=100", serverAddress, serializedPubkey)
-	response = testInvoiceRequest(t, u, serializedPubkey)
+	response = testInvoiceRequest(t, u)
 	if response.Status == "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
@@ -145,29 +156,26 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 	setupServer(storage)
 	setupHookServer(t)
 
-	// Test adding webhook
-	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
-	time := time.Now().Unix()
-	username := "testuser"
-	messgeToSign := fmt.Sprintf("%v-%v-%v", time, url, username)
-	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
-	first := sha256.Sum256([]byte(msg))
-	second := sha256.Sum256(first[:])
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
 		t.Errorf("failed to generate private key %v", err)
 	}
 	pubkey := privKey.PubKey()
-	sig, err := ecdsa.SignCompact(privKey, second[:], true)
+	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
+
+	// Test adding webhook
+	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
+	time := time.Now().Unix()
+	username := "testuser"
+	signature, err := signMessage(fmt.Sprintf("%v-%v-%v", time, url, username), privKey)
 	if err != nil {
 		t.Errorf("failed to sign signature %v", err)
 	}
-	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 	addWebhookPayload, _ := json.Marshal(lnurl.RegisterLnurlPayRequest{
 		Time:       time,
 		WebhookUrl: url,
 		Username:   &username,
-		Signature:  zbase32.EncodeToString(sig),
+		Signature:  *signature,
 	})
 
 	httpRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
@@ -183,9 +191,27 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 		t.Errorf("expected webhook to be registered")
 	}
 
+	// Test recovering
+	signature, err = signMessage(fmt.Sprintf("%v-%v", time, url), privKey)
+	if err != nil {
+		t.Errorf("failed to sign signature %v", err)
+	}
+	recoverPayload, _ := json.Marshal(lnurl.UnregisterRecoverLnurlPayRequest{
+		Time:       time,
+		WebhookUrl: url,
+		Signature:  *signature,
+	})
+	proxyRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v/recover", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(recoverPayload))
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if proxyRes.StatusCode != 200 {
+		t.Errorf("expected status code 200, got %v", proxyRes.StatusCode)
+	}
+
 	// Test lnurlpay info endpoint
 	u := fmt.Sprintf("http://%v/.well-known/lnurlp/%v", serverAddress, username)
-	proxyRes, err := http.Get(u)
+	proxyRes, err = http.Get(u)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -195,20 +221,20 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 
 	// Test lnurlpay info endpoint with invalid amount
 	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice", serverAddress, username)
-	response := testInvoiceRequest(t, u, serializedPubkey)
+	response := testInvoiceRequest(t, u)
 	if response.Status != "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
 
 	// Test lnurlpay info endpoint with valid amount
 	u = fmt.Sprintf("http://%v/lnurlpay/%v/invoice?amount=100", serverAddress, username)
-	response = testInvoiceRequest(t, u, serializedPubkey)
+	response = testInvoiceRequest(t, u)
 	if response.Status == "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
 	}
 }
 
-func testInvoiceRequest(t *testing.T, url string, serializedPubkey string) lnurl.LnurlPayStatus {
+func testInvoiceRequest(t *testing.T, url string) lnurl.LnurlPayStatus {
 	proxyRes, err := http.Get(url)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -225,4 +251,16 @@ func testInvoiceRequest(t *testing.T, url string, serializedPubkey string) lnurl
 		t.Errorf("failed to unmarhsal lnurlpay invoice response %v", err)
 	}
 	return response
+}
+
+func signMessage(messgeToSign string, privKey *secp256k1.PrivateKey) (*string, error) {
+	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
+	first := sha256.Sum256([]byte(msg))
+	second := sha256.Sum256(first[:])
+	sig, err := ecdsa.SignCompact(privKey, second[:], true)
+	if err != nil {
+		return nil, err
+	}
+	signature := zbase32.EncodeToString(sig)
+	return &signature, nil
 }
