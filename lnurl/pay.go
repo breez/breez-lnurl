@@ -156,6 +156,10 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
+		if serr, ok := err.(*persist.ErrorUsernameConflict); ok {
+			http.Error(w, serr.Error(), http.StatusConflict)
+			return
+		}
 		log.Printf(
 			"failed to register for %x for notifications on url %s: %v",
 			pubkey,
