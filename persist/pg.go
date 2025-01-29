@@ -30,7 +30,7 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 	}
 	if webhook.Username != nil {
 		// The set request includes a username. Insert the username for the pubkey if no record
-		// was found, otherwise update the pubkey's record with the new username. 
+		// was found, otherwise update the pubkey's record with the new username.
 		// If another record already uses this username, there will be an error returned.
 		username := strings.ToLower(*webhook.Username)
 		res, err := s.pool.Exec(
@@ -42,7 +42,7 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 			username,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("invalid username: %v", username)
+			return nil, NewErrorUsernameConflict(username, err)
 		}
 		if res.RowsAffected() == 0 {
 			return nil, fmt.Errorf("failed to set username for pubkey: %v", webhook.Pubkey)
@@ -73,7 +73,7 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 func (s *PgStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
 	pk := decodeIdentifier(identifier)
 
-	// Get the webhook record by the identifier which can either a decoded pubkey or username. 
+	// Get the webhook record by the identifier which can either a decoded pubkey or username.
 	rows, err := s.pool.Query(
 		ctx,
 		`SELECT encode(lw.pubkey, 'hex') pubkey, lpu.username, lw.url 

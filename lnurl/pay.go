@@ -35,7 +35,7 @@ type RegisterLnurlPayRequest struct {
 	Signature  string  `json:"signature"`
 }
 
-type RegisterLnurlPayResponse struct {
+type RegisterRecoverLnurlPayResponse struct {
 	Lnurl            string  `json:"lnurl"`
 	LightningAddress *string `json:"lightning_address,omitempty"`
 }
@@ -62,13 +62,13 @@ func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 	return nil
 }
 
-type UnregisterLnurlPayRequest struct {
+type UnregisterRecoverLnurlPayRequest struct {
 	Time       int64  `json:"time"`
 	WebhookUrl string `json:"webhook_url"`
 	Signature  string `json:"signature"`
 }
 
-func (w *UnregisterLnurlPayRequest) Verify(pubkey string) error {
+func (w *UnregisterRecoverLnurlPayRequest) Verify(pubkey string) error {
 	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
 		return errors.New("invalid time")
 	}
@@ -120,9 +120,48 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
+	router.HandleFunc("/lnurlpay/{pubkey}/recover", lnurlPayRouter.Recover).Methods("POST")
 	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
 	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
 	router.HandleFunc("/lnurlpay/{identifier}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
+}
+
+/*
+Recover retreives the registered LNURL/lightning address for a given pubkey.
+*/
+func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
+	var recoverRequest UnregisterRecoverLnurlPayRequest
+	if err := json.NewDecoder(r.Body).Decode(&recoverRequest); err != nil {
+		log.Printf("json.NewDecoder.Decode error: %v", err)
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	params := mux.Vars(r)
+	pubkey, ok := params["pubkey"]
+	if !ok {
+		http.Error(w, "invalid pubkey", http.StatusBadRequest)
+		return
+	}
+
+	if err := recoverRequest.Verify(pubkey); err != nil {
+		log.Printf("failed to verify recover request: %v", err)
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	webhook, err := s.store.GetLastUpdated(r.Context(), pubkey)
+	if err != nil || webhook == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Write(body)
 }
 
 /*
@@ -156,6 +195,10 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
+		if serr, ok := err.(*persist.ErrorUsernameConflict); ok {
+			http.Error(w, serr.Error(), http.StatusConflict)
+			return
+		}
 		log.Printf(
 			"failed to register for %x for notifications on url %s: %v",
 			pubkey,
@@ -168,20 +211,8 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("registration added: pubkey:%v\n", pubkey)
-	lnurl, err := encodeLnurl(fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey))
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	var lightningAddress *string
-	if webhook.Username != nil {
-		lnAddr := fmt.Sprintf("%v@%v", *webhook.Username, s.rootURL.Host)
-		lightningAddress = &lnAddr
-	}
-	body, err := json.Marshal(RegisterLnurlPayResponse{
-		Lnurl:            lnurl,
-		LightningAddress: lightningAddress,
-	})
+	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -193,7 +224,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 Unregister deletes a registration for a given pubkey and a unique identifier.
 */
 func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
-	var removeRequest UnregisterLnurlPayRequest
+	var removeRequest UnregisterRecoverLnurlPayRequest
 	if err := json.NewDecoder(r.Body).Decode(&removeRequest); err != nil {
 		log.Printf("json.NewDecoder.Decode error: %v", err)
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -322,6 +353,21 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 }
 
 /* helper methods */
+func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, host string) ([]byte, error) {
+	lnurl, err := encodeLnurl(lnurlUri)
+	if err != nil {
+		return nil, err
+	}
+	var lightningAddress *string
+	if username != nil {
+		lnAddr := fmt.Sprintf("%v@%v", *username, host)
+		lightningAddress = &lnAddr
+	}
+	return json.Marshal(RegisterRecoverLnurlPayResponse{
+		Lnurl:            lnurl,
+		LightningAddress: lightningAddress,
+	})
+}
 
 func writeJsonResponse(w http.ResponseWriter, response interface{}) {
 	jsonBytes, err := json.Marshal(response)

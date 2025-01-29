@@ -42,17 +42,40 @@ go run .
 - **Register LNURL Webhook:**
   - Endpoint: `/lnurlpay/{pubkey}`
   - Method: POST
-  - payload: `{time: <seconds since epoch>,  url: <webhook url>, signature: <signature of "time-url">}`
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, username: <optional username for lightning address>, signature: <signature of "time-webhook_url" or "time-webhook_url-username">}`
   - Description: Registers a new webhook for the mobile app.
 
+- **Unregister LNURL Webhook:**
+  - Endpoint: `/lnurlpay/{pubkey}`
+  - Method: DELETE
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Description: Unregisters a webhook from the LNURL service.
+
+- **Recover Registered LNURL and Lightning Address:**
+  - Endpoint: `/lnurlpay/{pubkey}/recover`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Description: Recovers the LNURL and lightning address registered.
+
 - **LNURL Pay Info Endpoint:**
-  - Endpoint: `lnurlp/{pubkey}/`
+  - Endpoint: `lnurlp/{identifier}`
   - Method: GET
+  - Params:
+    - `identifier` represents the pubkey or username registered
   - Description: Handles LNURL pay requests, forwarding them to the corresponding mobile app webhook.
 
 - **LNURL Pay Invoice Endpoint:**
-  - Endpoint: `lnurlpay/{pubkey}/invoice?amount=<amount>`
+  - Endpoint: `lnurlpay/{identifier}/invoice?amount=<amount>`
   - Method: GET
+  - Params: 
+    - `identifier`: represents the pubkey or username registered
+    - `amount`: invoice amount in millisatoshi
   - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
 
 - **Webhook Callback Endpoint:**
