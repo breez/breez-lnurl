@@ -45,10 +45,10 @@ func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 	if w.Username != nil {
 		username := *w.Username
 		if len(username) > MAX_USERNAME_LENGTH {
-			return fmt.Errorf("invalid username")
+			return fmt.Errorf("invalid username length %v", username)
 		}
 		if ok, err := regexp.MatchString(USERNAME_VALIDATION_REGEX, username); !ok || err != nil {
-			return fmt.Errorf("invalid username")
+			return fmt.Errorf("invalid username %v", username)
 		}
 		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, username)
 	}
