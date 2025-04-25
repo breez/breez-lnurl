@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/lnurl"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/gorilla/mux"
@@ -16,15 +17,17 @@ type Server struct {
 	internalURL *url.URL
 	externalURL *url.URL
 	storage     persist.Store
+	dns         dns.Dns
 	rootHandler *mux.Router
 }
 
-func NewServer(internalURL *url.URL, externalURL *url.URL, storage persist.Store) *Server {
+func NewServer(internalURL *url.URL, externalURL *url.URL, storage persist.Store, dns dns.Dns) *Server {
 	server := &Server{
 		internalURL: internalURL,
 		externalURL: externalURL,
 		storage:     storage,
-		rootHandler: initRootHandler(externalURL, storage),
+		dns:         dns,
+		rootHandler: initRootHandler(externalURL, storage, dns),
 	}
 
 	return server
@@ -34,7 +37,7 @@ func (s *Server) Serve() error {
 	return http.ListenAndServe(s.internalURL.Host, s.rootHandler)
 }
 
-func initRootHandler(externalURL *url.URL, storage persist.Store) *mux.Router {
+func initRootHandler(externalURL *url.URL, storage persist.Store, dns dns.Dns) *mux.Router {
 	rootRouter := mux.NewRouter()
 
 	// start the cleanup service
@@ -48,7 +51,7 @@ func initRootHandler(externalURL *url.URL, storage persist.Store) *mux.Router {
 	webhookChannel := channel.NewHttpCallbackChannel(rootRouter, fmt.Sprintf("%v/response", externalURL.String()))
 
 	// Routes to handle lnurl pay protocol.
-	lnurl.RegisterLnurlPayRouter(rootRouter, externalURL, storage, webhookChannel)
+	lnurl.RegisterLnurlPayRouter(rootRouter, externalURL, storage, dns, webhookChannel)
 
 	return rootRouter
 }

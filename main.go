@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
 )
 
@@ -14,6 +15,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create postgres store: %v", err)
 	}
+
+	// TODO: Replace with a real DNS implementation
+	dns := &dns.NoDns{}
 
 	// parse external URL
 	externalURL, err := parseURLFromEnv("SERVER_EXTERNAL_URL", "http://localhost:8080")
@@ -26,7 +30,7 @@ func main() {
 		log.Fatalf("failed to parse internal server URL %v", err)
 	}
 
-	NewServer(internalURL, externalURL, storage).Serve()
+	NewServer(internalURL, externalURL, storage, dns).Serve()
 }
 
 func parseURLFromEnv(envKey string, defaultURL string) (*url.URL, error) {

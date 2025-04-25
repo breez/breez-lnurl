@@ -16,6 +16,7 @@ import (
 	"log"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
@@ -119,13 +120,15 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 
 type LnurlPayRouter struct {
 	store   persist.Store
+	dns     dns.Dns
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.Dns, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
+		dns:     dns,
 		channel: channel,
 		rootURL: rootURL,
 	}
@@ -227,6 +230,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Update the BIP353 DNS TXT records
 	if updatedWebhook.Username != nil && updatedWebhook.Offer != nil {
+		shouldSetOffer := lastWebhook == nil || lastWebhook.Offer == nil
 		username := *updatedWebhook.Username
 		offer := *updatedWebhook.Offer
 
@@ -234,17 +238,19 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 			// If the last webhook exists, we need to check if the username or offer has changed
 			lastUsername := *lastWebhook.Username
 			lastOffer := *lastWebhook.Offer
+			shouldSetOffer = username != lastUsername || offer != lastOffer
 
 			if username != lastUsername {
-				// TODO: Remove the DNS TXT record for the last username
-				// TODO: Add the DNS TXT record for the username/offer
-			} else if offer != lastOffer {
-				// TODO: Update the DNS TXT record for the username/offer
+				if err = s.dns.Remove(lastUsername); err != nil {
+					log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
+				}
 			}
-		} else {
-			// If the last webhook doesn't exist or it didn't have a username or offer set
+		}
 
-			// TODO: Add the DNS TXT record for the username/offer
+		if shouldSetOffer {
+			if err = s.dns.Set(username, offer); err != nil {
+				log.Printf("failed to set DNS TXT record for %v, %v: %v", username, offer, err)
+			}
 		}
 	}
 
@@ -302,8 +308,13 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Remove the DNS TXT record for this username/offer
-	// using the `webhook.Username`
+	// Remove the DNS TXT record for this username/offer
+	if webhook.Username != nil {
+		username := *webhook.Username
+		if err = s.dns.Remove(username); err != nil {
+			log.Printf("failed to remove DNS TXT record for %v: %v", username, err)
+		}
+	}
 
 	log.Printf("registration removed: pubkey:%v url: %v\n", pubkey, removeRequest.WebhookUrl)
 	w.WriteHeader(http.StatusOK)
