@@ -1,0 +1,1 @@
+ALTER TABLE public.lnurl_pubkey_usernames DROP COLUMN offer;

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,18 +30,33 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 		return nil, err
 	}
 	if webhook.Username != nil {
+		var res pgconn.CommandTag
+		var err error
 		// The set request includes a username. Insert the username for the pubkey if no record
 		// was found, otherwise update the pubkey's record with the new username.
 		// If another record already uses this username, there will be an error returned.
 		username := strings.ToLower(*webhook.Username)
-		res, err := s.pool.Exec(
-			ctx,
-			`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username) 
-			 values ($1, $2)
-			 ON CONFLICT (pubkey) DO UPDATE SET username = $2`,
-			pk,
-			username,
-		)
+		if webhook.Offer != nil {
+			offer := *webhook.Offer
+			res, err = s.pool.Exec(
+				ctx,
+				`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username, offer) 
+				 values ($1, $2, $3)
+				 ON CONFLICT (pubkey) DO UPDATE SET username = $2, offer = $3`,
+				pk,
+				username,
+				offer,
+			)
+		} else {
+			res, err = s.pool.Exec(
+				ctx,
+				`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username) 
+				 values ($1, $2)
+				 ON CONFLICT (pubkey) DO UPDATE SET username = $2`,
+				pk,
+				username,
+			)
+		}
 		if err != nil {
 			return nil, NewErrorUsernameConflict(username, err)
 		}
@@ -76,7 +92,7 @@ func (s *PgStore) GetLastUpdated(ctx context.Context, identifier string) (*Webho
 	// Get the webhook record by the identifier which can either a decoded pubkey or username.
 	rows, err := s.pool.Query(
 		ctx,
-		`SELECT encode(lw.pubkey, 'hex') pubkey, lpu.username, lw.url 
+		`SELECT encode(lw.pubkey, 'hex') pubkey, lw.url, lpu.username, lpu.offer
 		 FROM public.lnurl_webhooks lw
          LEFT JOIN public.lnurl_pubkey_usernames lpu ON lw.pubkey = lpu.pubkey
 		 WHERE lw.pubkey = $1 OR lpu.username = $2

@@ -6,14 +6,16 @@ import (
 )
 
 type Webhook struct {
-	Pubkey   string `json:"pubkey" db:"pubkey"`
+	Pubkey   string  `json:"pubkey" db:"pubkey"`
+	Url      string  `json:"url" db:"url"`
 	Username *string `json:"username" db:"username"`
-	Url      string `json:"url" db:"url"`
+	Offer    *string `json:"offer" db:"offer"`
 }
 
 type PubkeyUsername struct {
-	Pubkey   string `json:"pubkey" db:"pubkey"`
-	Username string `json:"username" db:"username"`
+	Pubkey   string  `json:"pubkey" db:"pubkey"`
+	Username string  `json:"username" db:"username"`
+	Offer    *string `json:"offer" db:"offer"`
 }
 
 func (w Webhook) Compare(identifier string) bool {

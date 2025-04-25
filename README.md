@@ -44,7 +44,12 @@ go run .
   - Method: POST
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, username: <optional username for lightning address>, signature: <signature of "time-webhook_url" or "time-webhook_url-username">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `username` for the lightning address (optional)
+    - `offer` for the username's BIP353 record (optional)
+    - `signature` of "<time>-<webhook_url>" or "<time>-<webhook_url>-<username>" or "<time>-<webhook_url>-<username>-<offer>"
   - Description: Registers a new webhook for the mobile app.
 
 - **Unregister LNURL Webhook:**
@@ -52,7 +57,10 @@ go run .
   - Method: DELETE
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `signature` of "<time>-<webhook_url>"
   - Description: Unregisters a webhook from the LNURL service.
 
 - **Recover Registered LNURL and Lightning Address:**
@@ -60,7 +68,10 @@ go run .
   - Method: POST
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `signature` of "<time>-<webhook_url>"
   - Description: Recovers the LNURL and lightning address registered.
 
 - **LNURL Pay Info Endpoint:**

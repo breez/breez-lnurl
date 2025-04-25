@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"log"
@@ -29,9 +30,10 @@ const (
 )
 
 type RegisterLnurlPayRequest struct {
-	Username   *string `json:"username"`
 	Time       int64   `json:"time"`
 	WebhookUrl string  `json:"webhook_url"`
+	Username   *string `json:"username"`
+	Offer      *string `json:"offer"`
 	Signature  string  `json:"signature"`
 }
 
@@ -43,6 +45,7 @@ type RegisterRecoverLnurlPayResponse struct {
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
 	if w.Username != nil {
+		// Validate with username if present
 		username := *w.Username
 		if len(username) > MAX_USERNAME_LENGTH {
 			return fmt.Errorf("invalid username length %v", username)
@@ -51,6 +54,14 @@ func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
 			return fmt.Errorf("invalid username %v", username)
 		}
 		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, username)
+		// Validate with offer if present
+		if w.Offer != nil {
+			offer := *w.Offer
+			if !strings.HasPrefix(offer, "lno") {
+				return fmt.Errorf("invalid offer %v", offer)
+			}
+			messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, offer)
+		}
 	}
 	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
@@ -188,10 +199,14 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
-	webhook, err := s.store.Set(r.Context(), persist.Webhook{
+
+	// Get the last updated webhook for the pubkey to use it to check if the offer has changed
+	lastWebhook, _ := s.store.GetLastUpdated(r.Context(), pubkey)
+	updatedWebhook, err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:   pubkey,
-		Username: addRequest.Username,
 		Url:      addRequest.WebhookUrl,
+		Username: addRequest.Username,
+		Offer:    addRequest.Offer,
 	})
 
 	if err != nil {
@@ -210,9 +225,32 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update the BIP353 DNS TXT records
+	if updatedWebhook.Username != nil && updatedWebhook.Offer != nil {
+		username := *updatedWebhook.Username
+		offer := *updatedWebhook.Offer
+
+		if lastWebhook != nil && lastWebhook.Username != nil && lastWebhook.Offer != nil {
+			// If the last webhook exists, we need to check if the username or offer has changed
+			lastUsername := *lastWebhook.Username
+			lastOffer := *lastWebhook.Offer
+
+			if username != lastUsername {
+				// TODO: Remove the DNS TXT record for the last username
+				// TODO: Add the DNS TXT record for the username/offer
+			} else if offer != lastOffer {
+				// TODO: Update the DNS TXT record for the username/offer
+			}
+		} else {
+			// If the last webhook doesn't exist or it didn't have a username or offer set
+
+			// TODO: Add the DNS TXT record for the username/offer
+		}
+	}
+
 	log.Printf("registration added: pubkey:%v\n", pubkey)
 	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
-	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, updatedWebhook.Username, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -244,7 +282,15 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.store.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
+	// Return 200 if the webhook is not found
+	webhook, err := s.store.GetLastUpdated(r.Context(), pubkey)
+	if err != nil || webhook == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Remove the webhook from the store for the given pubkey
+	err = s.store.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
 	if err != nil {
 		log.Printf(
 			"failed unregister for pubkey %v url %v: %v",
@@ -255,6 +301,10 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	// TODO: Remove the DNS TXT record for this username/offer
+	// using the `webhook.Username`
+
 	log.Printf("registration removed: pubkey:%v url: %v\n", pubkey, removeRequest.WebhookUrl)
 	w.WriteHeader(http.StatusOK)
 }
