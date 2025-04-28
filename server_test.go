@@ -32,7 +32,7 @@ const (
 	testEndpoint      = "testEndpoint"
 )
 
-func setupServer(storage persist.Store, dns dns.Dns) {
+func setupServer(storage persist.Store, dns dns.DnsService) {
 	serverURL, err := url.Parse(fmt.Sprintf("http://%v", serverAddress))
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)

@@ -31,6 +31,11 @@ There are two optional environment variables that can be set:
 - **SERVER_EXTERNAL_URL**: The url this server can be reached from the outside world.
 - **SERVER_INTERNAL_URL**: The internal url the server listens to.
 - **DATABASE_URL**: The database url.
+For DNS management of BIP353 records
+- **NAME_SERVER**: The name server to connect to.
+- **DNS_PROTOCOL**: The DNS protocol to use (one of "tcp", "tcp-tls" or "udp". Default "udp").
+- **TSIG_KEY**: The TSIG key used to authenticate updates.
+- **TSIG_SECRET**: The TSIG secret used to authenticate updates.
 
 ### Running the Server
 Execute the command below to start the server:
@@ -39,6 +44,45 @@ go run .
 ```
 
 ## API Endpoints
+
+### BOLT12 Offer
+
+- **Register BOLT12 Offeer:**
+  - Endpoint: `/bolt12offer/{pubkey}`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `username` for the lightning address
+    - `offer` for the username's BIP353 record
+    - `signature` of "<time>-<username>-<offer>"
+  - Description: Registers a new BOLT12 Offer.
+
+- **Unregister BOLT12 Offer:**
+  - Endpoint: `/bolt12offer/{pubkey}`
+  - Method: DELETE
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `offer` for the pubkey's BIP353 record
+    - `signature` of "<time>-<offer>"
+  - Description: Unregisters a BOLT12 Offer.
+
+- **Recover Registered Lightning Address:**
+  - Endpoint: `/bolt12offer/{pubkey}/recover`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `offer` for the pubkey's BIP353 record
+    - `signature` of "<time>-<offer>"
+  - Description: Recovers the lightning address registered.
+
+### BOLT12 Offer and LNURL-Pay
+
 - **Register LNURL Webhook:**
   - Endpoint: `/lnurlpay/{pubkey}`
   - Method: POST

@@ -120,12 +120,12 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 
 type LnurlPayRouter struct {
 	store   persist.Store
-	dns     dns.Dns
+	dns     dns.DnsService
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.Dns, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
 		dns:     dns,
@@ -209,7 +209,6 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		Pubkey:   pubkey,
 		Url:      addRequest.WebhookUrl,
 		Username: addRequest.Username,
-		Offer:    addRequest.Offer,
 	})
 
 	if err != nil {
@@ -248,8 +247,13 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if shouldSetOffer {
-			if err = s.dns.Set(username, offer); err != nil {
+			ttl, err := s.dns.Set(username, offer)
+			if err != nil {
 				log.Printf("failed to set DNS TXT record for %v, %v: %v", username, offer, err)
+			}
+			if ttl != 0 {
+				// Only set the offer if the DNS service returns a TTL
+				s.store.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
 			}
 		}
 	}
@@ -314,6 +318,7 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		if err = s.dns.Remove(username); err != nil {
 			log.Printf("failed to remove DNS TXT record for %v: %v", username, err)
 		}
+		s.store.SetPubkeyDetails(r.Context(), pubkey, username, nil)
 	}
 
 	log.Printf("registration removed: pubkey:%v url: %v\n", pubkey, removeRequest.WebhookUrl)
