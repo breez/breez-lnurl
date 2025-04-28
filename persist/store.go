@@ -59,7 +59,7 @@ func (m *MemoryStore) SetPubkeyDetails(ctx context.Context, pubkey string, usern
 	var hooks []Webhook
 	var webhook Webhook
 	for _, hook := range m.webhooks {
-		if hook.Pubkey == webhook.Pubkey && hook.Url == webhook.Url {
+		if hook.Pubkey == pubkey {
 			webhook = hook
 			continue
 		}

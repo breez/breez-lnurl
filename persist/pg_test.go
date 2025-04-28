@@ -135,7 +135,7 @@ func TestPgStoreBolt12(t *testing.T) {
 	res, err := pgStore.SetPubkeyDetails(context.Background(), testpubkey, testuser, nil)
 	assert.NilError(t, err, "failed to set")
 	assert.Check(t, res != nil, "should not be nil")
-	assert.Equal(t, res.Username, "bolt12user", "username should be tesbolt12usertuser")
+	assert.Equal(t, res.Username, "bolt12user", "username should be bolt12user")
 
 	// Test that we are able to fetch the right webhook
 	res, err = pgStore.GetPubkeyDetails(context.Background(), "032c711e575be2df47d8b48dab3d3f1c9b0f6e16d0d40b5ed78253308fc2bd7170")

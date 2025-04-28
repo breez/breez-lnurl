@@ -47,7 +47,7 @@ go run .
 
 ### BOLT12 Offer
 
-- **Register BOLT12 Offeer:**
+- **Register BOLT12 Offer:**
   - Endpoint: `/bolt12offer/{pubkey}`
   - Method: POST
   - Params:

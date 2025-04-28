@@ -117,8 +117,8 @@ func TestPayRegisterLnurlPayRequestValidOffers(t *testing.T) {
 	}
 
 	for _, offer := range validOffers {
-		messgeToSign := fmt.Sprintf("%v-%v-%v-%v", time, url, username, offer)
-		msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
+		messageToSign := fmt.Sprintf("%v-%v-%v-%v", time, url, username, offer)
+		msg := append(lightning.SignedMsgPrefix, []byte(messageToSign)...)
 		first := sha256.Sum256([]byte(msg))
 		second := sha256.Sum256(first[:])
 		sig, err := ecdsa.SignCompact(privKey, second[:], true)
