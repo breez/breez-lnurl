@@ -54,7 +54,7 @@ go run .
     - `pubkey` used to sign the request signature
   - Payload (JSON): 
     - `time` in seconds since epoch
-    - `username` for the lightning address
+    - `username` for the BIP353 address
     - `offer` for the username's BIP353 record
     - `signature` of "<time>-<username>-<offer>"
   - Description: Registers a new BOLT12 Offer.
@@ -91,7 +91,7 @@ go run .
   - Payload (JSON): 
     - `time` in seconds since epoch
     - `webhook_url` to receive requests to
-    - `username` for the lightning address (optional)
+    - `username` for the lightning and BIP353 addresses (optional)
     - `offer` for the username's BIP353 record (optional)
     - `signature` of "<time>-<webhook_url>" or "<time>-<webhook_url>-<username>" or "<time>-<webhook_url>-<username>-<offer>"
   - Description: Registers a new webhook for the mobile app.

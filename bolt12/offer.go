@@ -96,7 +96,7 @@ func RegisterBolt12OfferRouter(router *mux.Router, rootURL *url.URL, store persi
 }
 
 /*
-Recover retreives the registered lightning address for a given pubkey.
+Recover retrieves the registered lightning address for a given pubkey.
 */
 func (s *Bolt12OfferRouter) Recover(w http.ResponseWriter, r *http.Request) {
 	var recoverRequest UnregisterRecoverBolt12OfferRequest

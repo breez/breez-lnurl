@@ -134,7 +134,7 @@ func TestPayRegisterLnurlPayRequestValidOffers(t *testing.T) {
 		}
 		log.Printf("offer: %v", *payRequest.Offer)
 		err = payRequest.Verify(serializedPubkey)
-		assert.NilError(t, err, "should be able a valid offer")
+		assert.NilError(t, err, "should be a valid offer")
 	}
 }
 
@@ -150,14 +150,14 @@ func TestPayRegisterLnurlPayRequestInvalidOffers(t *testing.T) {
 	pubkey := privKey.PubKey()
 	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
 
-	// Test valid offers
-	validOffers := []string{
+	// Test invalid offers
+	invalidOffers := []string{
 		"thisisnotavalidoffer",
 		"LNO1ZZFQ9KTW4H4R67QPQ3ZF4JJUJDRPEENUZ4JW9CWHXGJL5E7A8WVH5CQCQVET65AHJAWGR0R0UK0XZN0D5HRLPN2PQKQPEAUWD4LXN33KJHA7QGZ4G9UZME8AAKPEHDZGEL76LNE3SSWK6DUCU6YGNSH8D87FQAH39PSQTQWEQRRF5ACTFUUCVMMMLT3K6SNKSJ9DHSGVSCJ3AA2PRF3P386Q7P9KZHEK7N0ASPFMZXPPS793PQ0KUFNLEVX9QTYYEM0TQ5G5LYM8XT6ZCVE2KGQE5WV3GF9FCQKMT2Z",
 		"LNINVALIDOFFER",
 	}
 
-	for _, offer := range validOffers {
+	for _, offer := range invalidOffers {
 		messgeToSign := fmt.Sprintf("%v-%v-%v-%v", time, url, username, offer)
 		msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 		first := sha256.Sum256([]byte(msg))
