@@ -35,10 +35,13 @@ type RegisterBolt12OfferRequest struct {
 }
 
 type RegisterRecoverBolt12OfferResponse struct {
-	LightningAddress string `json:"lightning_address"`
+	BIP353Address string `json:"bip353_address"`
 }
 
 func (w *RegisterBolt12OfferRequest) Verify(pubkey string) error {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+		return errors.New("invalid time")
+	}
 	if len(w.Username) > MAX_USERNAME_LENGTH {
 		return fmt.Errorf("invalid username length %v", w.Username)
 	}
@@ -124,9 +127,9 @@ func (s *Bolt12OfferRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	lightningAddress := fmt.Sprintf("%v@%v", lastPkUsername.Username, s.rootURL.Host)
+	bip353Address := fmt.Sprintf("%v@%v", lastPkUsername.Username, s.rootURL.Host)
 	body, err := json.Marshal(RegisterRecoverBolt12OfferResponse{
-		LightningAddress: lightningAddress,
+		BIP353Address: bip353Address,
 	})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -214,9 +217,9 @@ func (s *Bolt12OfferRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("registration added: pubkey:%v\n", pubkey)
-	lightningAddress := fmt.Sprintf("%v@%v", updatedPkUsername.Username, s.rootURL.Host)
+	bip353Address := fmt.Sprintf("%v@%v", updatedPkUsername.Username, s.rootURL.Host)
 	body, err := json.Marshal(RegisterRecoverBolt12OfferResponse{
-		LightningAddress: lightningAddress,
+		BIP353Address: bip353Address,
 	})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

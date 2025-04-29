@@ -41,9 +41,13 @@ type RegisterLnurlPayRequest struct {
 type RegisterRecoverLnurlPayResponse struct {
 	Lnurl            string  `json:"lnurl"`
 	LightningAddress *string `json:"lightning_address,omitempty"`
+	BIP353Address    *string `json:"bip353_address,omitempty"`
 }
 
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+		return errors.New("invalid time")
+	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
 	if w.Username != nil {
 		// Validate with username if present
@@ -170,7 +174,7 @@ func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
-	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, webhook.Offer, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -260,7 +264,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("registration added: pubkey:%v\n", pubkey)
 	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
-	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, updatedWebhook.Username, s.rootURL.Host)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, updatedWebhook.Username, updatedWebhook.Offer, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -419,19 +423,23 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 }
 
 /* helper methods */
-func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, host string) ([]byte, error) {
+func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, offer *string, host string) ([]byte, error) {
 	lnurl, err := encodeLnurl(lnurlUri)
 	if err != nil {
 		return nil, err
 	}
-	var lightningAddress *string
+	var lightningAddress, bip353Address *string
 	if username != nil {
 		lnAddr := fmt.Sprintf("%v@%v", *username, host)
 		lightningAddress = &lnAddr
+		if offer != nil {
+			bip353Address = &lnAddr
+		}
 	}
 	return json.Marshal(RegisterRecoverLnurlPayResponse{
 		Lnurl:            lnurl,
 		LightningAddress: lightningAddress,
+		BIP353Address:    bip353Address,
 	})
 }
 
