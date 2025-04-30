@@ -14,11 +14,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/martian/v3/body"
 	"github.com/gorilla/mux"
 )
 
 const (
-	callbackTimeout = 30 * time.Second
+	CALLBACK_TIMEOUT = 30 * time.Second
 )
 
 type WebhookMessage struct {
@@ -28,6 +29,11 @@ type WebhookMessage struct {
 
 type WebhookChannel interface {
 	SendRequest(context context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error)
+}
+
+type CallbackResponse struct {
+	maxAge uint64
+	body   string
 }
 
 type PendingRequest struct {
@@ -103,7 +109,7 @@ func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message
 		return result, nil
 	case <-c.Done():
 		return "", errors.New("canceled")
-	case <-time.After(callbackTimeout):
+	case <-time.After(CALLBACK_TIMEOUT):
 		return "", errors.New("timeout")
 	}
 }

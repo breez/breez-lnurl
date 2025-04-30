@@ -16,18 +16,11 @@ import (
 	"log"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/constant"
 	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
-)
-
-const (
-	// https://datatracker.ietf.org/doc/html/rfc5322#section-3.4.1
-	// https://stackoverflow.com/a/201378
-	USERNAME_VALIDATION_REGEX = "^(?:[a-zA-Z0-9!#$%&'*+\\/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+\\/=?^_`{|}~-]+)*|\"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")$"
-	// https://www.rfc-editor.org/errata/eid1690
-	MAX_USERNAME_LENGTH = 64
 )
 
 type RegisterLnurlPayRequest struct {
@@ -45,17 +38,17 @@ type RegisterRecoverLnurlPayResponse struct {
 }
 
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
-	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > constant.ACCEPTABLE_TIME_DIFF {
 		return errors.New("invalid time")
 	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
 	if w.Username != nil {
 		// Validate with username if present
 		username := *w.Username
-		if len(username) > MAX_USERNAME_LENGTH {
+		if len(username) > constant.MAX_USERNAME_LENGTH {
 			return fmt.Errorf("invalid username length %v", username)
 		}
-		if ok, err := regexp.MatchString(USERNAME_VALIDATION_REGEX, username); !ok || err != nil {
+		if ok, err := regexp.MatchString(constant.USERNAME_VALIDATION_REGEX, username); !ok || err != nil {
 			return fmt.Errorf("invalid username %v", username)
 		}
 		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, username)
@@ -85,7 +78,7 @@ type UnregisterRecoverLnurlPayRequest struct {
 }
 
 func (w *UnregisterRecoverLnurlPayRequest) Verify(pubkey string) error {
-	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > constant.ACCEPTABLE_TIME_DIFF {
 		return errors.New("invalid time")
 	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
