@@ -29,23 +29,10 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 		return nil, err
 	}
 	if webhook.Username != nil {
-		// The set request includes a username. Insert the username for the pubkey if no record
-		// was found, otherwise update the pubkey's record with the new username.
-		// If another record already uses this username, there will be an error returned.
 		username := strings.ToLower(*webhook.Username)
-		res, err := s.pool.Exec(
-			ctx,
-			`INSERT INTO public.lnurl_pubkey_usernames (pubkey, username) 
-			 values ($1, $2)
-			 ON CONFLICT (pubkey) DO UPDATE SET username = $2`,
-			pk,
-			username,
-		)
+		_, err := s.SetPubkeyDetails(ctx, webhook.Pubkey, username, webhook.Offer)
 		if err != nil {
-			return nil, NewErrorUsernameConflict(username, err)
-		}
-		if res.RowsAffected() == 0 {
-			return nil, fmt.Errorf("failed to set username for pubkey: %v", webhook.Pubkey)
+			return nil, err
 		}
 		webhook.Username = &username
 	}
@@ -70,15 +57,44 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 	return &webhook, err
 }
 
+func (s *PgStore) SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error) {
+	pk, err := hex.DecodeString(pubkey)
+	if err != nil {
+		return nil, err
+	}
+	username = strings.ToLower(username)
+	res, err := s.pool.Exec(
+		ctx,
+		`INSERT INTO public.pubkey_details (pubkey, username, offer) 
+		 values ($1, $2, $3)
+		 ON CONFLICT (pubkey) DO UPDATE SET username = $2, offer = $3`,
+		pk,
+		username,
+		offer,
+	)
+	if err != nil {
+		return nil, NewErrorUsernameConflict(username, err)
+	}
+
+	if res.RowsAffected() == 0 {
+		return nil, fmt.Errorf("failed to set offer for pubkey: %v", pubkey)
+	}
+	return &PubkeyDetails{
+		Pubkey:   pubkey,
+		Username: username,
+		Offer:    offer,
+	}, nil
+}
+
 func (s *PgStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
 	pk := decodeIdentifier(identifier)
 
 	// Get the webhook record by the identifier which can either a decoded pubkey or username.
 	rows, err := s.pool.Query(
 		ctx,
-		`SELECT encode(lw.pubkey, 'hex') pubkey, lpu.username, lw.url 
+		`SELECT encode(lw.pubkey, 'hex') pubkey, lw.url, lpu.username, lpu.offer
 		 FROM public.lnurl_webhooks lw
-         LEFT JOIN public.lnurl_pubkey_usernames lpu ON lw.pubkey = lpu.pubkey
+         LEFT JOIN public.pubkey_details lpu ON lw.pubkey = lpu.pubkey
 		 WHERE lw.pubkey = $1 OR lpu.username = $2
 		 ORDER BY lw.refreshed_at DESC LIMIT 1`,
 		pk,
@@ -97,6 +113,34 @@ func (s *PgStore) GetLastUpdated(ctx context.Context, identifier string) (*Webho
 		return nil, fmt.Errorf("unexpected webhooks count for: %v", identifier)
 	}
 	return &webhooks[0], nil
+}
+
+func (s *PgStore) GetPubkeyDetails(ctx context.Context, identifier string) (*PubkeyDetails, error) {
+	pk := decodeIdentifier(identifier)
+
+	// Get the pubkey usernames record by the identifier which can either a decoded pubkey or username.
+	rows, err := s.pool.Query(
+		ctx,
+		`SELECT encode(lpu.pubkey, 'hex') pubkey, lpu.username, lpu.offer 
+		 FROM public.pubkey_details lpu
+		 WHERE lpu.pubkey = $1 OR lpu.username = $2
+		 LIMIT 1`,
+		pk,
+		strings.ToLower(identifier),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	PubkeyDetailss, err := pgx.CollectRows(rows, pgx.RowToStructByName[PubkeyDetails])
+	if err != nil {
+		return nil, err
+	}
+	if len(PubkeyDetailss) != 1 {
+		return nil, fmt.Errorf("unexpected pubkey usernames count for: %v count: %v", identifier, len(PubkeyDetailss))
+	}
+	return &PubkeyDetailss[0], nil
 }
 
 func (s *PgStore) Remove(ctx context.Context, pubkey, url string) error {
@@ -120,11 +164,37 @@ func (s *PgStore) DeleteExpired(
 	ctx context.Context,
 	before time.Time,
 ) error {
-	_, err := s.pool.Exec(
+	rows, err := s.pool.Query(
 		ctx,
-		`DELETE FROM public.lnurl_webhooks
+		`SELECT pubkey
+		 FROM public.lnurl_webhooks
 		 WHERE refreshed_at < $1`,
 		before.UnixMicro())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	pubkeys, err := getPubkeys(rows)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(
+		ctx,
+		`DELETE FROM public.lnurl_webhooks
+		 WHERE pubkey = ANY($1)`,
+		pubkeys)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.pool.Exec(
+		ctx,
+		`DELETE FROM public.pubkey_details
+		 WHERE pubkey = ANY($1)`,
+		pubkeys)
+	if err != nil {
+		return err
+	}
 
 	return err
 }
@@ -144,4 +214,19 @@ func decodeIdentifier(identifier string) *[]byte {
 	}
 
 	return &pk
+}
+
+func getPubkeys(rows pgx.Rows) ([][]byte, error) {
+	var pubkeys [][]byte
+	for rows.Next() {
+		var pubkey []byte
+		if err := rows.Scan(&pubkey); err != nil {
+			return [][]byte{}, err
+		}
+		pubkeys = append(pubkeys, pubkey)
+	}
+	if err := rows.Err(); err != nil {
+		return [][]byte{}, err
+	}
+	return pubkeys, nil
 }

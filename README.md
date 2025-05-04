@@ -31,6 +31,11 @@ There are two optional environment variables that can be set:
 - **SERVER_EXTERNAL_URL**: The url this server can be reached from the outside world.
 - **SERVER_INTERNAL_URL**: The internal url the server listens to.
 - **DATABASE_URL**: The database url.
+For DNS management of BIP353 records
+- **NAME_SERVER**: The name server to connect to.
+- **DNS_PROTOCOL**: The DNS protocol to use (one of "tcp", "tcp-tls" or "udp". Default "udp").
+- **TSIG_KEY**: The TSIG key used to authenticate updates.
+- **TSIG_SECRET**: The TSIG secret used to authenticate updates.
 
 ### Running the Server
 Execute the command below to start the server:
@@ -39,12 +44,56 @@ go run .
 ```
 
 ## API Endpoints
+
+### BOLT12 Offer
+
+- **Register BOLT12 Offer:**
+  - Endpoint: `/bolt12offer/{pubkey}`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `username` for the BIP353 address
+    - `offer` for the username's BIP353 record
+    - `signature` of "<time>-<username>-<offer>"
+  - Description: Registers a new BOLT12 Offer.
+
+- **Unregister BOLT12 Offer:**
+  - Endpoint: `/bolt12offer/{pubkey}`
+  - Method: DELETE
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `offer` for the pubkey's BIP353 record
+    - `signature` of "<time>-<offer>"
+  - Description: Unregisters a BOLT12 Offer.
+
+- **Recover Registered Lightning Address:**
+  - Endpoint: `/bolt12offer/{pubkey}/recover`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `offer` for the pubkey's BIP353 record
+    - `signature` of "<time>-<offer>"
+  - Description: Recovers the lightning address registered.
+
+### BOLT12 Offer and LNURL-Pay
+
 - **Register LNURL Webhook:**
   - Endpoint: `/lnurlpay/{pubkey}`
   - Method: POST
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, username: <optional username for lightning address>, signature: <signature of "time-webhook_url" or "time-webhook_url-username">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `username` for the lightning and BIP353 addresses (optional)
+    - `offer` for the username's BIP353 record (optional)
+    - `signature` of "<time>-<webhook_url>" or "<time>-<webhook_url>-<username>" or "<time>-<webhook_url>-<username>-<offer>"
   - Description: Registers a new webhook for the mobile app.
 
 - **Unregister LNURL Webhook:**
@@ -52,7 +101,10 @@ go run .
   - Method: DELETE
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `signature` of "<time>-<webhook_url>"
   - Description: Unregisters a webhook from the LNURL service.
 
 - **Recover Registered LNURL and Lightning Address:**
@@ -60,7 +112,10 @@ go run .
   - Method: POST
   - Params:
     - `pubkey` used to sign the request signature
-  - Payload: `{time: <seconds since epoch>, webhook_url: <webhook url>, signature: <signature of "time-webhook_url">}`
+  - Payload (JSON): 
+    - `time` in seconds since epoch
+    - `webhook_url` to receive requests to
+    - `signature` of "<time>-<webhook_url>"
   - Description: Recovers the LNURL and lightning address registered.
 
 - **LNURL Pay Info Endpoint:**

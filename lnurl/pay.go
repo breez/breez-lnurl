@@ -10,47 +10,56 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"log"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/constant"
+	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
 )
 
-const (
-	// https://datatracker.ietf.org/doc/html/rfc5322#section-3.4.1
-	// https://stackoverflow.com/a/201378
-	USERNAME_VALIDATION_REGEX = "^(?:[a-zA-Z0-9!#$%&'*+\\/=?^_`{|}~-]+(?:\\.[a-z0-9!#$%&'*+\\/=?^_`{|}~-]+)*|\"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*\")$"
-	// https://www.rfc-editor.org/errata/eid1690
-	MAX_USERNAME_LENGTH = 64
-)
-
 type RegisterLnurlPayRequest struct {
-	Username   *string `json:"username"`
 	Time       int64   `json:"time"`
 	WebhookUrl string  `json:"webhook_url"`
+	Username   *string `json:"username"`
+	Offer      *string `json:"offer"`
 	Signature  string  `json:"signature"`
 }
 
 type RegisterRecoverLnurlPayResponse struct {
 	Lnurl            string  `json:"lnurl"`
 	LightningAddress *string `json:"lightning_address,omitempty"`
+	BIP353Address    *string `json:"bip353_address,omitempty"`
 }
 
 func (w *RegisterLnurlPayRequest) Verify(pubkey string) error {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > constant.ACCEPTABLE_TIME_DIFF {
+		return errors.New("invalid time")
+	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
 	if w.Username != nil {
+		// Validate with username if present
 		username := *w.Username
-		if len(username) > MAX_USERNAME_LENGTH {
+		if len(username) > constant.MAX_USERNAME_LENGTH {
 			return fmt.Errorf("invalid username length %v", username)
 		}
-		if ok, err := regexp.MatchString(USERNAME_VALIDATION_REGEX, username); !ok || err != nil {
+		if ok, err := regexp.MatchString(constant.USERNAME_VALIDATION_REGEX, username); !ok || err != nil {
 			return fmt.Errorf("invalid username %v", username)
 		}
 		messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, username)
+		// Validate with offer if present
+		if w.Offer != nil {
+			offer := *w.Offer
+			if !strings.HasPrefix(offer, "lno") {
+				return fmt.Errorf("invalid offer %v", offer)
+			}
+			messageToVerify = fmt.Sprintf("%v-%v", messageToVerify, offer)
+		}
 	}
 	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
 	if err != nil {
@@ -69,7 +78,7 @@ type UnregisterRecoverLnurlPayRequest struct {
 }
 
 func (w *UnregisterRecoverLnurlPayRequest) Verify(pubkey string) error {
-	if math.Abs(float64(time.Now().Unix()-w.Time)) > 30 {
+	if math.Abs(float64(time.Now().Unix()-w.Time)) > constant.ACCEPTABLE_TIME_DIFF {
 		return errors.New("invalid time")
 	}
 	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.WebhookUrl)
@@ -108,13 +117,15 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 
 type LnurlPayRouter struct {
 	store   persist.Store
+	dns     dns.DnsService
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
+		dns:     dns,
 		channel: channel,
 		rootURL: rootURL,
 	}
@@ -156,7 +167,7 @@ func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
-	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, webhook.Offer, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -188,10 +199,13 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
-	webhook, err := s.store.Set(r.Context(), persist.Webhook{
+
+	// Get the last updated webhook for the pubkey to use it to check if the offer has changed
+	lastWebhook, _ := s.store.GetLastUpdated(r.Context(), pubkey)
+	updatedWebhook, err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:   pubkey,
-		Username: addRequest.Username,
 		Url:      addRequest.WebhookUrl,
+		Username: addRequest.Username,
 	})
 
 	if err != nil {
@@ -210,9 +224,40 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update the BIP353 DNS TXT records
+	if updatedWebhook.Username != nil && updatedWebhook.Offer != nil {
+		shouldSetOffer := lastWebhook == nil || lastWebhook.Offer == nil
+		username := *updatedWebhook.Username
+		offer := *updatedWebhook.Offer
+
+		if lastWebhook != nil && lastWebhook.Username != nil && lastWebhook.Offer != nil {
+			// If the last webhook exists, we need to check if the username or offer has changed
+			lastUsername := *lastWebhook.Username
+			lastOffer := *lastWebhook.Offer
+			shouldSetOffer = username != lastUsername || offer != lastOffer
+
+			if username != lastUsername {
+				if err = s.dns.Remove(lastUsername); err != nil {
+					log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
+				}
+			}
+		}
+
+		if shouldSetOffer {
+			ttl, err := s.dns.Set(username, offer)
+			if err != nil {
+				log.Printf("failed to set DNS TXT record for %v, %v: %v", username, offer, err)
+			}
+			if ttl != 0 {
+				// Only set the offer if the DNS service returns a TTL
+				s.store.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
+			}
+		}
+	}
+
 	log.Printf("registration added: pubkey:%v\n", pubkey)
 	lnurlUri := fmt.Sprintf("%v/lnurlp/%v", s.rootURL, pubkey)
-	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, webhook.Username, s.rootURL.Host)
+	body, err := marshalRegisterRecoverLnurlPayResponse(lnurlUri, updatedWebhook.Username, updatedWebhook.Offer, s.rootURL.Host)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -244,7 +289,15 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.store.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
+	// Return 200 if the webhook is not found
+	webhook, err := s.store.GetLastUpdated(r.Context(), pubkey)
+	if err != nil || webhook == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Remove the webhook from the store for the given pubkey
+	err = s.store.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
 	if err != nil {
 		log.Printf(
 			"failed unregister for pubkey %v url %v: %v",
@@ -255,6 +308,16 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	// Remove the DNS TXT record for this username/offer
+	if webhook.Username != nil {
+		username := *webhook.Username
+		if err = s.dns.Remove(username); err != nil {
+			log.Printf("failed to remove DNS TXT record for %v: %v", username, err)
+		}
+		s.store.SetPubkeyDetails(r.Context(), pubkey, username, nil)
+	}
+
 	log.Printf("registration removed: pubkey:%v url: %v\n", pubkey, removeRequest.WebhookUrl)
 	w.WriteHeader(http.StatusOK)
 }
@@ -353,19 +416,23 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 }
 
 /* helper methods */
-func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, host string) ([]byte, error) {
+func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, offer *string, host string) ([]byte, error) {
 	lnurl, err := encodeLnurl(lnurlUri)
 	if err != nil {
 		return nil, err
 	}
-	var lightningAddress *string
+	var lightningAddress, bip353Address *string
 	if username != nil {
 		lnAddr := fmt.Sprintf("%v@%v", *username, host)
 		lightningAddress = &lnAddr
+		if offer != nil {
+			bip353Address = &lnAddr
+		}
 	}
 	return json.Marshal(RegisterRecoverLnurlPayResponse{
 		Lnurl:            lnurl,
 		LightningAddress: lightningAddress,
+		BIP353Address:    bip353Address,
 	})
 }
 

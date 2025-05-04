@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/breez/breez-lnurl/channel"
+	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/lnurl"
 	"github.com/breez/breez-lnurl/persist"
 	"github.com/breez/lspd/lightning"
@@ -31,12 +32,12 @@ const (
 	testEndpoint      = "testEndpoint"
 )
 
-func setupServer(storage persist.Store) {
+func setupServer(storage persist.Store, dns dns.DnsService) {
 	serverURL, err := url.Parse(fmt.Sprintf("http://%v", serverAddress))
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)
 	}
-	server := NewServer(serverURL, serverURL, storage)
+	server := NewServer(serverURL, serverURL, storage, dns)
 	go func() {
 		persist.NewCleanupService(storage).Start(context.Background())
 	}()
@@ -76,7 +77,8 @@ func setupHookServer(t *testing.T) {
 
 func TestRegisterWebhook(t *testing.T) {
 	storage := &persist.MemoryStore{}
-	setupServer(storage)
+	dns := &dns.NoDns{}
+	setupServer(storage, dns)
 	setupHookServer(t)
 
 	privKey, err := secp256k1.GeneratePrivateKey()
@@ -153,7 +155,8 @@ func TestRegisterWebhook(t *testing.T) {
 
 func TestRegisterWebhookWithUsername(t *testing.T) {
 	storage := &persist.MemoryStore{}
-	setupServer(storage)
+	dns := &dns.NoDns{}
+	setupServer(storage, dns)
 	setupHookServer(t)
 
 	privKey, err := secp256k1.GeneratePrivateKey()
@@ -231,6 +234,53 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 	response = testInvoiceRequest(t, u)
 	if response.Status == "ERROR" {
 		t.Errorf("Got error from lnurlpay invoice response %v", response.Status)
+	}
+}
+
+func TestRegisterWebhookWithOffer(t *testing.T) {
+	storage := &persist.MemoryStore{}
+	dns := &dns.NoDns{}
+	setupServer(storage, dns)
+	setupHookServer(t)
+
+	privKey, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		t.Errorf("failed to generate private key %v", err)
+	}
+	pubkey := privKey.PubKey()
+	serializedPubkey := hex.EncodeToString(pubkey.SerializeCompressed())
+
+	// Test adding webhook
+	url := fmt.Sprintf("http://%v/callback", hookServerAddress)
+	time := time.Now().Unix()
+	username := "testuser"
+	offer := "lno1zzfq9ktw4h4r67qpq3zf4jjujdrpeenuz4jw9cwhxgjl5e7a8wvh5cqcqvet65ahjawgr0r0uk0xznn0d5hrlpn2pqkqpeauwd4lxn33kjha7qgz4g9uzme8aakpehdzgel76lne3sswk6ducu6ygnsh8d87fqah39psqtqweqrf5actfuucvmmlt3k6snksj9dhsgvscj3aa2prf3p386q7p9kzhek7n0aspfmzxpps793pq0kufnlevx9qtyem0tq5g5lym8xt6zcve2kgqe5wv3gf9fcqkmt2z"
+	signature, err := signMessage(fmt.Sprintf("%v-%v-%v-%v", time, url, username, offer), privKey)
+	if err != nil {
+		t.Errorf("failed to sign signature %v", err)
+	}
+	addWebhookPayload, _ := json.Marshal(lnurl.RegisterLnurlPayRequest{
+		Time:       time,
+		WebhookUrl: url,
+		Username:   &username,
+		Offer:      &offer,
+		Signature:  *signature,
+	})
+
+	httpRes, err := http.Post(fmt.Sprintf("http://%v/lnurlpay/%v", serverAddress, serializedPubkey), "application/json", bytes.NewBuffer(addWebhookPayload))
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if httpRes.StatusCode != 200 {
+		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
+	}
+
+	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	if webhook == nil {
+		t.Errorf("expected webhook to be registered")
+	}
+	if webhook != nil && webhook.Offer == nil {
+		t.Errorf("expected webhook to have offer")
 	}
 }
 
