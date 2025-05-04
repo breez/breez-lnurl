@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/martian/v3/body"
 	"github.com/gorilla/mux"
 )
 
@@ -29,11 +28,6 @@ type WebhookMessage struct {
 
 type WebhookChannel interface {
 	SendRequest(context context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error)
-}
-
-type CallbackResponse struct {
-	maxAge uint64
-	body   string
 }
 
 type PendingRequest struct {
