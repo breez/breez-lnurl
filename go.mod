@@ -1,6 +1,8 @@
 module github.com/breez/breez-lnurl
 
-go 1.20
+go 1.24
+
+toolchain go1.24.2
 
 require (
 	github.com/breez/lspd v0.0.0-20240105094013-6a633578deff
