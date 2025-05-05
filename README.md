@@ -26,6 +26,11 @@ This server application allows mobile apps that use the Breez SDK to register we
    go mod tidy
    ```
 
+### Database setup and migration
+1. Create a database user for your application.
+2. For the initial setup and each time you pull this repo, check the `persist/migrations` directory for any additional migrations.
+3. In sequence, run each of the SQL statements in the *.up.sql files in your prefered SQL query tool.
+
 ### Configuration
 There are two optional environment variables that can be set:
 - **SERVER_EXTERNAL_URL**: The url this server can be reached from the outside world.
