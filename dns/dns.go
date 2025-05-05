@@ -55,6 +55,28 @@ type Dns struct {
 	client     *dns.Client
 }
 
+func chunks(s string, chunkSize int) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	if chunkSize >= len(s) {
+		return []string{s}
+	}
+	var chunks []string = make([]string, 0, (len(s)-1)/chunkSize+1)
+	currentLen := 0
+	currentStart := 0
+	for i := range s {
+		if currentLen == chunkSize {
+			chunks = append(chunks, s[currentStart:i])
+			currentLen = 0
+			currentStart = i
+		}
+		currentLen++
+	}
+	chunks = append(chunks, s[currentStart:])
+	return chunks
+}
+
 func (d *Dns) Set(username, offer string) (uint32, error) {
 	ttl := uint32(3600)
 	zone := fmt.Sprintf("_bitcoin-payment.%s.", d.domain)
@@ -63,7 +85,7 @@ func (d *Dns) Set(username, offer string) (uint32, error) {
 
 	rr := new(dns.TXT)
 	rr.Hdr = dns.RR_Header{Name: name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl}
-	rr.Txt = []string{txt}
+	rr.Txt = chunks(txt, 255)
 	rrs := []dns.RR{rr}
 
 	m := new(dns.Msg)
@@ -83,6 +105,7 @@ func (d *Dns) Set(username, offer string) (uint32, error) {
 		log.Printf("DNS update failed: %v", err)
 		return 0, err
 	}
+	log.Printf("DNS update success (Set): %#v", reply)
 
 	return ttl, nil
 }
@@ -112,6 +135,7 @@ func (d *Dns) Remove(username string) error {
 		log.Printf("DNS update failed: %v", err)
 		return err
 	}
+	log.Printf("DNS update success (Remove): %#v", reply)
 
 	return nil
 }

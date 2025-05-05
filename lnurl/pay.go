@@ -225,10 +225,10 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the BIP353 DNS TXT records
-	if updatedWebhook.Username != nil && updatedWebhook.Offer != nil {
+	if addRequest.Username != nil && addRequest.Offer != nil {
 		shouldSetOffer := lastWebhook == nil || lastWebhook.Offer == nil
-		username := *updatedWebhook.Username
-		offer := *updatedWebhook.Offer
+		username := *addRequest.Username
+		offer := *addRequest.Offer
 
 		if lastWebhook != nil && lastWebhook.Username != nil && lastWebhook.Offer != nil {
 			// If the last webhook exists, we need to check if the username or offer has changed
