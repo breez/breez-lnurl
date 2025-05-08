@@ -135,6 +135,7 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
 	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
 	router.HandleFunc("/lnurlpay/{identifier}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
+	router.HandleFunc("/lnurlpay/{identifier}/{payment_hash}", lnurlPayRouter.HandleVerify).Methods("GET")
 }
 
 /*
@@ -397,10 +398,58 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	verifyURL := fmt.Sprintf("%v/lnurlpay/%v/{payment_hash}", l.rootURL.String(), identifier)
 	message := channel.WebhookMessage{
 		Template: "lnurlpay_invoice",
 		Data: map[string]interface{}{
-			"amount": amountNum,
+			"amount":     amountNum,
+			"verify_url": verifyURL,
+		},
+	}
+	response, err := l.channel.SendRequest(r.Context(), webhook.Url, message, w)
+	if r.Context().Err() != nil {
+		return
+	}
+	if err != nil {
+		log.Printf("failed to send request to webhook pubkey:%v, err:%v", webhook.Pubkey, err)
+		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
+		return
+	}
+	w.Write([]byte(response))
+}
+
+/*
+HandleVerify handles the request of the lnurl verify protocol.
+*/
+func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	identifier, ok := params["identifier"]
+	if !ok {
+		log.Println("invalid params, err")
+		http.Error(w, "unexpected error", http.StatusInternalServerError)
+		return
+	}
+	paymentHash, ok := params["payment_hash"]
+	if !ok {
+		log.Println("invalid params, err")
+		http.Error(w, "unexpected error", http.StatusInternalServerError)
+		return
+	}
+
+	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
+	if err != nil {
+		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
+		return
+	}
+	if webhook == nil {
+		http.Error(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+
+	message := channel.WebhookMessage{
+		Template: "lnurlpay_verify",
+		Data: map[string]interface{}{
+			"payment_hash": paymentHash,
 		},
 	}
 	response, err := l.channel.SendRequest(r.Context(), webhook.Url, message, w)
