@@ -398,14 +398,17 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verifyURL := fmt.Sprintf("%v/lnurlpay/%v/{payment_hash}", l.rootURL.String(), identifier)
 	message := channel.WebhookMessage{
 		Template: "lnurlpay_invoice",
 		Data: map[string]interface{}{
-			"amount":     amountNum,
-			"verify_url": verifyURL,
+			"amount": amountNum,
 		},
 	}
+	if webhook.Offer != nil {
+		verifyURL := fmt.Sprintf("%v/lnurlpay/%v/{payment_hash}", l.rootURL.String(), identifier)
+		message.Data["verify_url"] = verifyURL
+	}
+
 	response, err := l.channel.SendRequest(r.Context(), webhook.Url, message, w)
 	if r.Context().Err() != nil {
 		return
