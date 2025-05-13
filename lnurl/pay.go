@@ -404,6 +404,8 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 			"amount": amountNum,
 		},
 	}
+	// WA: This is a workaround to support backwards compatibility with clients not supporting LNURL-verify.
+	// If the LNURL registration has an offer, we know we can add the verify_url to the request as they are in the same release.
 	if webhook.Offer != nil {
 		verifyURL := fmt.Sprintf("%v/lnurlpay/%v/{payment_hash}", l.rootURL.String(), identifier)
 		message.Data["verify_url"] = verifyURL
