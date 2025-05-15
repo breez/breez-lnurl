@@ -26,13 +26,18 @@ type WebhookMessage struct {
 	Data     map[string]interface{} `json:"data"`
 }
 
+type CallbackResponse struct {
+	Body   []byte
+	MaxAge *int64
+}
+
 type WebhookChannel interface {
-	SendRequest(context context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error)
+	SendRequest(context context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (*CallbackResponse, error)
 }
 
 type PendingRequest struct {
-	id     uint64
-	result chan string
+	id       uint64
+	response chan CallbackResponse
 }
 
 type HttpCallbackChannel struct {
@@ -58,17 +63,17 @@ func NewHttpCallbackChannel(router *mux.Router, callbackBaseURL string) *HttpCal
 	return channel
 }
 
-func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (string, error) {
+func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message WebhookMessage, rw http.ResponseWriter) (*CallbackResponse, error) {
 	reqID := p.random.Uint64()
 	callbackURL := fmt.Sprintf("%s/%d", p.callbackBaseURL, reqID)
 	message.Data["reply_url"] = callbackURL
 	jsonBytes, err := json.Marshal(message)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	pendingRequest := &PendingRequest{
-		id:     reqID,
-		result: make(chan string, 1),
+		id:       reqID,
+		response: make(chan CallbackResponse, 1),
 	}
 	p.Lock()
 	p.pendingRequests[reqID] = pendingRequest
@@ -86,36 +91,36 @@ func (p *HttpCallbackChannel) SendRequest(c context.Context, url string, message
 
 	req, err := http.NewRequestWithContext(c, "POST", url, strings.NewReader(string(jsonBytes)))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	req.Header.Add("Content-Type", "application/json")
 
 	log.Printf("Sending webhook callback message %v", string(jsonBytes))
 	httpRes, err := p.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if httpRes.StatusCode != 200 {
-		return "", errors.New("webhook proxy returned non-200 status code")
+		return nil, errors.New("webhook proxy returned non-200 status code")
 	}
 	select {
-	case result := <-pendingRequest.result:
-		return result, nil
+	case response := <-pendingRequest.response:
+		return &response, nil
 	case <-c.Done():
-		return "", errors.New("canceled")
+		return nil, errors.New("canceled")
 	case <-time.After(CALLBACK_TIMEOUT):
-		return "", errors.New("timeout")
+		return nil, errors.New("timeout")
 	}
 }
 
-func (p *HttpCallbackChannel) OnResponse(reqID uint64, payload string) error {
+func (p *HttpCallbackChannel) OnResponse(reqID uint64, response CallbackResponse) error {
 	p.Lock()
 	defer p.Unlock()
 	pendingRequest, ok := p.pendingRequests[reqID]
 	if !ok {
 		return errors.New("unknown request id")
 	}
-	pendingRequest.result <- payload
+	pendingRequest.response <- response
 	// We only delete the request from the map and close the channel.
 	p.deleteRequestAndClose(pendingRequest)
 	return nil
@@ -141,7 +146,11 @@ func (l *HttpCallbackChannel) HandleResponse(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := l.OnResponse(reqID, string(all)); err != nil {
+	response := CallbackResponse{
+		Body: all,
+		MaxAge: getCacheControlMaxAge(r.Header),
+	}
+	if err := l.OnResponse(reqID, response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -149,7 +158,26 @@ func (l *HttpCallbackChannel) HandleResponse(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusOK)
 }
 
+func getCacheControlMaxAge(header http.Header) *int64 {
+	cacheControl := header.Get("Cache-Control")
+	if cacheControl == "" {
+		return nil
+	}
+	for _, directive := range strings.Split(cacheControl, ",") {
+		directive = strings.TrimSpace(directive)
+		if strings.HasPrefix(directive, "max-age=") {
+			maxAgeStr := strings.TrimPrefix(directive, "max-age=")
+			maxAge, err := strconv.ParseInt(maxAgeStr, 10, 64)
+			if err != nil {
+				return nil
+			}
+			return &maxAge
+		}
+	}
+	return nil
+}
+
 func (p *HttpCallbackChannel) deleteRequestAndClose(req *PendingRequest) {
 	delete(p.pendingRequests, req.id)
-	close(req.result)
+	close(req.response)
 }

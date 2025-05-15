@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+type Cache struct {
+	Url       string `json:"url" db:"url"`
+	Body      []byte `json:"body" db:"body"`
+	ExpiresAt int64  `json:"expires_at" db:"expires_at"`
+}
+
 type Webhook struct {
 	Pubkey   string  `json:"pubkey" db:"pubkey"`
 	Url      string  `json:"url" db:"url"`
@@ -32,14 +38,18 @@ func (w Webhook) Compare(identifier string) bool {
 
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) (*Webhook, error)
+	SetCache(ctx context.Context, url string, body []byte, expiresAt int64) error
 	SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error)
+	GetCache(ctx context.Context, url string, now int64) (*Cache, error)
 	GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error)
 	GetPubkeyDetails(ctx context.Context, identifier string) (*PubkeyDetails, error)
 	Remove(ctx context.Context, pubkey, url string) error
+	RemoveCache(ctx context.Context, url string) error
 	DeleteExpired(ctx context.Context, before time.Time) error
 }
 
 type MemoryStore struct {
+	caches   []Cache
 	webhooks []Webhook
 }
 
@@ -53,6 +63,18 @@ func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error
 	}
 	m.webhooks = append([]Webhook{webhook}, hooks...)
 	return &webhook, nil
+}
+
+func (m *MemoryStore) SetCache(ctx context.Context, url string, body []byte, expiresAt int64) error {
+	var caches []Cache
+	for _, cache := range m.caches {
+		if cache.Url == url {
+			continue
+		}
+		caches = append(caches, cache)
+	}
+	m.caches = append([]Cache{{Url: url, Body: body, ExpiresAt: expiresAt}}, caches...)
+	return nil
 }
 
 func (m *MemoryStore) SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error) {
@@ -75,6 +97,15 @@ func (m *MemoryStore) SetPubkeyDetails(ctx context.Context, pubkey string, usern
 		Username: username,
 		Offer:    offer,
 	}, nil
+}
+
+func (m *MemoryStore) GetCache(ctx context.Context, url string, now int64) (*Cache, error) {
+	for _, cache := range m.caches {
+		if cache.Url == url && cache.ExpiresAt > now {
+			return &cache, nil
+		}
+	}
+	return nil, nil
 }
 
 func (m *MemoryStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
@@ -110,6 +141,18 @@ func (m *MemoryStore) Remove(ctx context.Context, pubkey, url string) error {
 		hooks = append(hooks, hook)
 	}
 	m.webhooks = hooks
+	return nil
+}
+
+func (m *MemoryStore) RemoveCache(ctx context.Context, url string) error {
+	var caches []Cache
+	for _, cache := range m.caches {
+		if cache.Url == url {
+			continue
+		}
+		caches = append(caches, cache)
+	}
+	m.caches = caches
 	return nil
 }
 
