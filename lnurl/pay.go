@@ -1,6 +1,7 @@
 package lnurl
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -132,10 +133,21 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
 	router.HandleFunc("/lnurlpay/{pubkey}/recover", lnurlPayRouter.Recover).Methods("POST")
-	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
-	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
+	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleLnurlPay)).Methods("GET")
+	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleLnurlPay)).Methods("GET")
 	router.HandleFunc("/lnurlpay/{identifier}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
-	router.HandleFunc("/lnurlpay/{identifier}/{payment_hash}", lnurlPayRouter.HandleVerify).Methods("GET")
+	router.HandleFunc("/lnurlpay/{identifier}/{payment_hash}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleVerify)).Methods("GET")
+}
+
+func (s *LnurlPayRouter) cacheMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now().UnixMicro()
+		if cache, err := s.store.GetCache(r.Context(), r.URL.String(), now); err == nil && cache != nil {
+			w.Write(cache.Body)
+			return
+		}
+		next(w, r)
+	})
 }
 
 /*
@@ -381,8 +393,9 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	l.updateCache(r.Context(), r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /*
@@ -441,7 +454,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /*
@@ -487,8 +500,9 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	l.updateCache(r.Context(), r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /* helper methods */
@@ -510,6 +524,21 @@ func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, o
 		LightningAddress: lightningAddress,
 		BIP353Address:    bip353Address,
 	})
+}
+
+func (l *LnurlPayRouter) updateCache(ctx context.Context, url string, response *channel.CallbackResponse) {
+	if response.MaxAge != nil && *response.MaxAge > 0 {
+		maxAge := *response.MaxAge
+		log.Printf("Cache response for %v seconds for %s", maxAge, url)
+		now := time.Now().Add(time.Second * time.Duration(maxAge)).UnixMicro()
+		if err := l.store.SetCache(ctx, url, response.Body, now); err != nil {
+			log.Printf("Failed to set cache for %s: %v", url, err)
+		}
+	} else {
+		if err := l.store.RemoveCache(ctx, url); err != nil {
+			log.Printf("Failed to remove cache for %s: %v", url, err)
+		}
+	}
 }
 
 func writeJsonResponse(w http.ResponseWriter, response interface{}) {
