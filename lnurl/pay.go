@@ -207,6 +207,8 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		Pubkey:   pubkey,
 		Url:      addRequest.WebhookUrl,
 		Username: addRequest.Username,
+		// Keep the offer set with the last valid offer
+		Offer: lastWebhook.Offer,
 	})
 
 	if err != nil {
@@ -227,6 +229,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Update the BIP353 DNS TXT records
 	if addRequest.Username != nil && addRequest.Offer != nil {
+		// If the username and offer are set, we need to check if we need to update the DNS TXT record
 		shouldSetOffer := lastWebhook == nil || lastWebhook.Offer == nil
 		username := *addRequest.Username
 		offer := *addRequest.Offer
@@ -237,7 +240,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 			lastOffer := *lastWebhook.Offer
 			shouldSetOffer = username != lastUsername || offer != lastOffer
 
-			if username != lastUsername {
+			if shouldSetOffer {
 				if err = s.dns.Remove(lastUsername); err != nil {
 					log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
 				}
@@ -253,6 +256,15 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 				// Only set the offer if the DNS service returns a TTL
 				s.store.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
 			}
+		}
+	} else if addRequest.Offer == nil {
+		// If the offer is not set, we need to remove the DNS TXT record
+		if lastWebhook != nil && lastWebhook.Username != nil && lastWebhook.Offer != nil {
+			lastUsername := *lastWebhook.Username
+			if err = s.dns.Remove(lastUsername); err != nil {
+				log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
+			}
+			s.store.SetPubkeyDetails(r.Context(), pubkey, lastUsername, nil)
 		}
 	}
 
