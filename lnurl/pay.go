@@ -173,6 +173,7 @@ func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
@@ -202,13 +203,18 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the last updated webhook for the pubkey to use it to check if the offer has changed
+	var lastOffer *string
 	lastWebhook, _ := s.store.GetLastUpdated(r.Context(), pubkey)
+	if lastWebhook != nil && lastWebhook.Offer != nil {
+		lastOffer = lastWebhook.Offer
+	}
+
 	updatedWebhook, err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:   pubkey,
 		Url:      addRequest.WebhookUrl,
 		Username: addRequest.Username,
 		// Keep the offer set with the last valid offer
-		Offer: lastWebhook.Offer,
+		Offer: lastOffer,
 	})
 
 	if err != nil {
@@ -275,6 +281,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
@@ -374,6 +381,7 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -432,6 +440,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -478,6 +487,7 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -508,5 +518,6 @@ func writeJsonResponse(w http.ResponseWriter, response interface{}) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(jsonBytes)
 }
