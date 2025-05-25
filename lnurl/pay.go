@@ -173,6 +173,7 @@ func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
@@ -202,11 +203,18 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the last updated webhook for the pubkey to use it to check if the offer has changed
+	var lastOffer *string
 	lastWebhook, _ := s.store.GetLastUpdated(r.Context(), pubkey)
+	if lastWebhook != nil && lastWebhook.Offer != nil {
+		lastOffer = lastWebhook.Offer
+	}
+
 	updatedWebhook, err := s.store.Set(r.Context(), persist.Webhook{
 		Pubkey:   pubkey,
 		Url:      addRequest.WebhookUrl,
 		Username: addRequest.Username,
+		// Keep the offer set with the last valid offer
+		Offer: lastOffer,
 	})
 
 	if err != nil {
@@ -227,6 +235,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Update the BIP353 DNS TXT records
 	if addRequest.Username != nil && addRequest.Offer != nil {
+		// If the username and offer are set, we need to check if we need to update the DNS TXT record
 		shouldSetOffer := lastWebhook == nil || lastWebhook.Offer == nil
 		username := *addRequest.Username
 		offer := *addRequest.Offer
@@ -237,7 +246,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 			lastOffer := *lastWebhook.Offer
 			shouldSetOffer = username != lastUsername || offer != lastOffer
 
-			if username != lastUsername {
+			if shouldSetOffer {
 				if err = s.dns.Remove(lastUsername); err != nil {
 					log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
 				}
@@ -254,6 +263,15 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 				s.store.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
 			}
 		}
+	} else if addRequest.Offer == nil {
+		// If the offer is not set, we need to remove the DNS TXT record
+		if lastWebhook != nil && lastWebhook.Username != nil && lastWebhook.Offer != nil {
+			lastUsername := *lastWebhook.Username
+			if err = s.dns.Remove(lastUsername); err != nil {
+				log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
+			}
+			s.store.SetPubkeyDetails(r.Context(), pubkey, lastUsername, nil)
+		}
 	}
 
 	log.Printf("registration added: pubkey:%v\n", pubkey)
@@ -263,6 +281,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
@@ -362,6 +381,7 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -420,6 +440,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -466,6 +487,7 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write([]byte(response))
 }
 
@@ -496,5 +518,6 @@ func writeJsonResponse(w http.ResponseWriter, response interface{}) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(jsonBytes)
 }

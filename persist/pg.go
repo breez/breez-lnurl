@@ -164,37 +164,11 @@ func (s *PgStore) DeleteExpired(
 	ctx context.Context,
 	before time.Time,
 ) error {
-	rows, err := s.pool.Query(
-		ctx,
-		`SELECT pubkey
-		 FROM public.lnurl_webhooks
-		 WHERE refreshed_at < $1`,
-		before.UnixMicro())
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	pubkeys, err := getPubkeys(rows)
-	if err != nil {
-		return err
-	}
-	_, err = s.pool.Exec(
+	_, err := s.pool.Exec(
 		ctx,
 		`DELETE FROM public.lnurl_webhooks
-		 WHERE pubkey = ANY($1)`,
-		pubkeys)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.pool.Exec(
-		ctx,
-		`DELETE FROM public.pubkey_details
-		 WHERE pubkey = ANY($1)`,
-		pubkeys)
-	if err != nil {
-		return err
-	}
+		 WHERE refreshed_at < $1`,
+		before.UnixMicro())
 
 	return err
 }
@@ -214,19 +188,4 @@ func decodeIdentifier(identifier string) *[]byte {
 	}
 
 	return &pk
-}
-
-func getPubkeys(rows pgx.Rows) ([][]byte, error) {
-	var pubkeys [][]byte
-	for rows.Next() {
-		var pubkey []byte
-		if err := rows.Scan(&pubkey); err != nil {
-			return [][]byte{}, err
-		}
-		pubkeys = append(pubkeys, pubkey)
-	}
-	if err := rows.Err(); err != nil {
-		return [][]byte{}, err
-	}
-	return pubkeys, nil
 }

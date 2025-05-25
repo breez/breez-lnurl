@@ -128,6 +128,7 @@ func (s *Bolt12OfferRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
@@ -218,6 +219,7 @@ func (s *Bolt12OfferRouter) Register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(body)
 }
 
