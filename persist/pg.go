@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -57,6 +58,19 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
 	return &webhook, err
 }
 
+func (s *PgStore) SetCache(ctx context.Context, url string, body []byte, expiresAt int64) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`INSERT INTO public.cached_responses (url, body, expires_at)
+		 values ($1, $2, $3)
+		 ON CONFLICT (url) DO UPDATE SET body = $2, expires_at = $3`,
+		strings.ToLower(url),
+		body,
+		expiresAt,
+	)
+	return err
+}
+
 func (s *PgStore) SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error) {
 	pk, err := hex.DecodeString(pubkey)
 	if err != nil {
@@ -84,6 +98,29 @@ func (s *PgStore) SetPubkeyDetails(ctx context.Context, pubkey string, username 
 		Username: username,
 		Offer:    offer,
 	}, nil
+}
+
+func (s *PgStore) GetCache(ctx context.Context, url string, now int64) (*Cache, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`SELECT url, body, expires_at
+		 FROM public.cached_responses
+		 WHERE url = $1 AND expires_at > $2`,
+		strings.ToLower(url),
+		now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	caches, err := pgx.CollectRows(rows, pgx.RowToStructByName[Cache])
+	if err != nil {
+		return nil, err
+	}
+	if len(caches) != 1 {
+		return nil, fmt.Errorf("unexpected cache count for: %v count: %v", url, len(caches))
+	}
+	return &caches[0], nil
 }
 
 func (s *PgStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
@@ -160,15 +197,36 @@ func (s *PgStore) Remove(ctx context.Context, pubkey, url string) error {
 	return err
 }
 
+func (s *PgStore) RemoveCache(ctx context.Context, url string) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`DELETE FROM public.cached_responses
+		 WHERE url = $1`,
+		strings.ToLower(url),
+	)
+	return err
+}
+
 func (s *PgStore) DeleteExpired(
 	ctx context.Context,
 	before time.Time,
 ) error {
+	beforeUnix := before.UnixMicro()
+	// Delete expired cached responses
 	_, err := s.pool.Exec(
+		ctx,
+		`DELETE FROM public.cached_responses
+		 WHERE expires_at < $1`,
+		beforeUnix)
+	if err != nil {
+		log.Printf("failed to delete expired cached responses before %v: %v", before, err)
+	}
+	// Delete expired webhook urls
+	_, err = s.pool.Exec(
 		ctx,
 		`DELETE FROM public.lnurl_webhooks
 		 WHERE refreshed_at < $1`,
-		before.UnixMicro())
+		beforeUnix)
 
 	return err
 }
