@@ -531,8 +531,8 @@ func (l *LnurlPayRouter) updateCache(ctx context.Context, url string, response *
 	if response.MaxAge != nil && *response.MaxAge > 0 {
 		maxAge := *response.MaxAge
 		log.Printf("Cache response for %v seconds for %s", maxAge, url)
-		now := time.Now().Add(time.Second * time.Duration(maxAge)).UnixMicro()
-		if err := l.store.SetCache(ctx, url, response.Body, now); err != nil {
+		expiry := time.Now().Add(time.Second * time.Duration(maxAge)).UnixMicro()
+		if err := l.store.SetCache(ctx, url, response.Body, expiry); err != nil {
 			log.Printf("Failed to set cache for %s: %v", url, err)
 		}
 	} else {
