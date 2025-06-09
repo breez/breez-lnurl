@@ -143,6 +143,7 @@ func (s *LnurlPayRouter) cacheMiddleware(next http.HandlerFunc) http.HandlerFunc
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMicro()
 		if cache, err := s.store.GetCache(r.Context(), r.URL.String(), now); err == nil && cache != nil {
+			w.Header().Add("Content-Type", "application/json")
 			w.Write(cache.Body)
 			return
 		}
