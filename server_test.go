@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/breez/breez-lnurl/cache"
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/lnurl"
@@ -32,12 +33,12 @@ const (
 	testEndpoint      = "testEndpoint"
 )
 
-func setupServer(storage persist.Store, dns dns.DnsService) {
+func setupServer(storage persist.Store, dns dns.DnsService, cache cache.CacheService) {
 	serverURL, err := url.Parse(fmt.Sprintf("http://%v", serverAddress))
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)
 	}
-	server := NewServer(serverURL, serverURL, storage, dns)
+	server := NewServer(serverURL, serverURL, storage, dns, cache)
 	go func() {
 		persist.NewCleanupService(storage).Start(context.Background())
 	}()
@@ -78,7 +79,8 @@ func setupHookServer(t *testing.T) {
 func TestRegisterWebhook(t *testing.T) {
 	storage := &persist.MemoryStore{}
 	dns := &dns.NoDns{}
-	setupServer(storage, dns)
+	cache := cache.NewCache(time.Minute)
+	setupServer(storage, dns, cache)
 	setupHookServer(t)
 
 	privKey, err := secp256k1.GeneratePrivateKey()
@@ -156,7 +158,8 @@ func TestRegisterWebhook(t *testing.T) {
 func TestRegisterWebhookWithUsername(t *testing.T) {
 	storage := &persist.MemoryStore{}
 	dns := &dns.NoDns{}
-	setupServer(storage, dns)
+	cache := cache.NewCache(time.Minute)
+	setupServer(storage, dns, cache)
 	setupHookServer(t)
 
 	privKey, err := secp256k1.GeneratePrivateKey()
@@ -240,7 +243,8 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 func TestRegisterWebhookWithOffer(t *testing.T) {
 	storage := &persist.MemoryStore{}
 	dns := &dns.NoDns{}
-	setupServer(storage, dns)
+	cache := cache.NewCache(time.Minute)
+	setupServer(storage, dns, cache)
 	setupHookServer(t)
 
 	privKey, err := secp256k1.GeneratePrivateKey()
