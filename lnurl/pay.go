@@ -1,7 +1,6 @@
 package lnurl
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,6 +15,7 @@ import (
 
 	"log"
 
+	"github.com/breez/breez-lnurl/cache"
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/constant"
 	"github.com/breez/breez-lnurl/dns"
@@ -119,14 +119,16 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 type LnurlPayRouter struct {
 	store   persist.Store
 	dns     dns.DnsService
+	cache   cache.CacheService
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, cache cache.CacheService, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
 		dns:     dns,
+		cache:   cache,
 		channel: channel,
 		rootURL: rootURL,
 	}
@@ -141,10 +143,11 @@ func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.
 
 func (s *LnurlPayRouter) cacheMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		now := time.Now().UnixMicro()
-		if cache, err := s.store.GetCache(r.Context(), r.URL.String(), now); err == nil && cache != nil {
+		url := r.URL.String()
+		if data := s.cache.Get(url); data != nil {
+			log.Printf("Cache hit for %s", url)
 			w.Header().Add("Content-Type", "application/json")
-			w.Write(cache.Body)
+			w.Write(data)
 			return
 		}
 		next(w, r)
@@ -394,7 +397,7 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
-	l.updateCache(r.Context(), r.URL.String(), response)
+	l.updateCache(r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
 	w.Write(response.Body)
 }
@@ -501,7 +504,7 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
-	l.updateCache(r.Context(), r.URL.String(), response)
+	l.updateCache(r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
 	w.Write(response.Body)
 }
@@ -527,18 +530,14 @@ func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, o
 	})
 }
 
-func (l *LnurlPayRouter) updateCache(ctx context.Context, url string, response *channel.CallbackResponse) {
+func (l *LnurlPayRouter) updateCache(url string, response *channel.CallbackResponse) {
 	if response.MaxAge != nil && *response.MaxAge > 0 {
 		maxAge := *response.MaxAge
 		log.Printf("Cache response for %v seconds for %s", maxAge, url)
-		expiry := time.Now().Add(time.Second * time.Duration(maxAge)).UnixMicro()
-		if err := l.store.SetCache(ctx, url, response.Body, expiry); err != nil {
-			log.Printf("Failed to set cache for %s: %v", url, err)
-		}
+		ttl := time.Second * time.Duration(maxAge)
+		l.cache.Set(url, response.Body, ttl)
 	} else {
-		if err := l.store.RemoveCache(ctx, url); err != nil {
-			log.Printf("Failed to remove cache for %s: %v", url, err)
-		}
+		l.cache.Delete(url)
 	}
 }
 

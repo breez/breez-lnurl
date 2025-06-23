@@ -4,7 +4,9 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"time"
 
+	"github.com/breez/breez-lnurl/cache"
 	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
 )
@@ -38,7 +40,9 @@ func main() {
 		log.Fatalf("failed to parse internal server URL %v", err)
 	}
 
-	NewServer(internalURL, externalURL, storage, dnsService).Serve()
+	cacheService := cache.NewCache(time.Minute)
+
+	NewServer(internalURL, externalURL, storage, dnsService, cacheService).Serve()
 }
 
 func parseURLFromEnv(envKey string, defaultURL string) (*url.URL, error) {
