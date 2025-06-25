@@ -408,6 +408,8 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	comment := r.URL.Query().Get("comment")
+
 	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
@@ -424,6 +426,12 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 			"amount": amountNum,
 		},
 	}
+
+	if comment != "" {
+		// If the comment is present, we add it to the message.
+		message.Data["comment"] = comment
+	}
+
 	// WA: This is a workaround to support backwards compatibility with clients not supporting LNURL-verify.
 	// If the LNURL registration has an offer, we know we can add the verify_url to the request as they are in the same release.
 	if webhook.Offer != nil {

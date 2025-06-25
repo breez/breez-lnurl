@@ -131,11 +131,12 @@ go run .
   - Description: Handles LNURL pay requests, forwarding them to the corresponding mobile app webhook.
 
 - **LNURL Pay Invoice Endpoint:**
-  - Endpoint: `lnurlpay/{identifier}/invoice?amount=<amount>`
+  - Endpoint: `lnurlpay/{identifier}/invoice?amount=<amount>&comment=<comment>`
   - Method: GET
   - Params: 
     - `identifier`: represents the pubkey or username registered
     - `amount`: invoice amount in millisatoshi
+    - `comment`: pay request comment (optional)
   - Description: Handles LNURL pay invoice requests, forwarding them to the corresponding mobile app webhook.
 
 - **Webhook Callback Endpoint:**
