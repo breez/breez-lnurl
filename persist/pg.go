@@ -164,11 +164,13 @@ func (s *PgStore) DeleteExpired(
 	ctx context.Context,
 	before time.Time,
 ) error {
+	beforeUnix := before.UnixMicro()
+	// Delete expired webhook urls
 	_, err := s.pool.Exec(
 		ctx,
 		`DELETE FROM public.lnurl_webhooks
 		 WHERE refreshed_at < $1`,
-		before.UnixMicro())
+		beforeUnix)
 
 	return err
 }

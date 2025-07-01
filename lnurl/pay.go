@@ -15,6 +15,7 @@ import (
 
 	"log"
 
+	"github.com/breez/breez-lnurl/cache"
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/constant"
 	"github.com/breez/breez-lnurl/dns"
@@ -118,24 +119,39 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 type LnurlPayRouter struct {
 	store   persist.Store
 	dns     dns.DnsService
+	cache   cache.CacheService
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, cache cache.CacheService, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
 		dns:     dns,
+		cache:   cache,
 		channel: channel,
 		rootURL: rootURL,
 	}
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Register).Methods("POST")
 	router.HandleFunc("/lnurlpay/{pubkey}", lnurlPayRouter.Unregister).Methods("DELETE")
 	router.HandleFunc("/lnurlpay/{pubkey}/recover", lnurlPayRouter.Recover).Methods("POST")
-	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
-	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.HandleLnurlPay).Methods("GET")
+	router.HandleFunc("/.well-known/lnurlp/{identifier}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleLnurlPay)).Methods("GET")
+	router.HandleFunc("/lnurlp/{identifier}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleLnurlPay)).Methods("GET")
 	router.HandleFunc("/lnurlpay/{identifier}/invoice", lnurlPayRouter.HandleInvoice).Methods("GET")
-	router.HandleFunc("/lnurlpay/{identifier}/{payment_hash}", lnurlPayRouter.HandleVerify).Methods("GET")
+	router.HandleFunc("/lnurlpay/{identifier}/{payment_hash}", lnurlPayRouter.cacheMiddleware(lnurlPayRouter.HandleVerify)).Methods("GET")
+}
+
+func (s *LnurlPayRouter) cacheMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		url := r.URL.String()
+		if data := s.cache.Get(url); data != nil {
+			log.Printf("Cache hit for %s", url)
+			w.Header().Add("Content-Type", "application/json")
+			w.Write(data)
+			return
+		}
+		next(w, r)
+	})
 }
 
 /*
@@ -381,8 +397,9 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	l.updateCache(r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /*
@@ -449,7 +466,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /*
@@ -495,8 +512,9 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("unavailable"))
 		return
 	}
+	l.updateCache(r.URL.String(), response)
 	w.Header().Add("Content-Type", "application/json")
-	w.Write([]byte(response))
+	w.Write(response.Body)
 }
 
 /* helper methods */
@@ -518,6 +536,17 @@ func marshalRegisterRecoverLnurlPayResponse(lnurlUri string, username *string, o
 		LightningAddress: lightningAddress,
 		BIP353Address:    bip353Address,
 	})
+}
+
+func (l *LnurlPayRouter) updateCache(url string, response *channel.CallbackResponse) {
+	if response.MaxAge != nil && *response.MaxAge > 0 {
+		maxAge := *response.MaxAge
+		log.Printf("Cache response for %v seconds for %s", maxAge, url)
+		ttl := time.Second * time.Duration(maxAge)
+		l.cache.Set(url, response.Body, ttl)
+	} else {
+		l.cache.Delete(url)
+	}
 }
 
 func writeJsonResponse(w http.ResponseWriter, response interface{}) {
