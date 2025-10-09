@@ -147,7 +147,7 @@ func (l *HttpCallbackChannel) HandleResponse(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	response := CallbackResponse{
-		Body: all,
+		Body:   all,
 		MaxAge: getCacheControlMaxAge(r.Header),
 	}
 	if err := l.OnResponse(reqID, response); err != nil {

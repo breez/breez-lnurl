@@ -20,6 +20,7 @@ import (
 	"github.com/breez/breez-lnurl/constant"
 	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
+	lnurl "github.com/breez/breez-lnurl/persist/lnurl"
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
 )
@@ -117,14 +118,14 @@ func NewLnurlPayOkResponse(reason string) LnurlPayStatus {
 }
 
 type LnurlPayRouter struct {
-	store   persist.Store
+	store   *persist.Store
 	dns     dns.DnsService
 	cache   cache.CacheService
 	channel channel.WebhookChannel
 	rootURL *url.URL
 }
 
-func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService, cache cache.CacheService, channel channel.WebhookChannel) {
+func RegisterLnurlPayRouter(router *mux.Router, rootURL *url.URL, store *persist.Store, dns dns.DnsService, cache cache.CacheService, channel channel.WebhookChannel) {
 	lnurlPayRouter := &LnurlPayRouter{
 		store:   store,
 		dns:     dns,
@@ -178,7 +179,7 @@ func (s *LnurlPayRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := s.store.GetLastUpdated(r.Context(), pubkey)
+	webhook, err := s.store.LnUrl.GetLastUpdated(r.Context(), pubkey)
 	if err != nil || webhook == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -220,12 +221,12 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Get the last updated webhook for the pubkey to use it to check if the offer has changed
 	var lastOffer *string
-	lastWebhook, _ := s.store.GetLastUpdated(r.Context(), pubkey)
+	lastWebhook, _ := s.store.LnUrl.GetLastUpdated(r.Context(), pubkey)
 	if lastWebhook != nil && lastWebhook.Offer != nil {
 		lastOffer = lastWebhook.Offer
 	}
 
-	updatedWebhook, err := s.store.Set(r.Context(), persist.Webhook{
+	updatedWebhook, err := s.store.LnUrl.Set(r.Context(), lnurl.Webhook{
 		Pubkey:   pubkey,
 		Url:      addRequest.WebhookUrl,
 		Username: addRequest.Username,
@@ -234,7 +235,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		if serr, ok := err.(*persist.ErrorUsernameConflict); ok {
+		if serr, ok := err.(*lnurl.ErrorUsernameConflict); ok {
 			http.Error(w, serr.Error(), http.StatusConflict)
 			return
 		}
@@ -276,7 +277,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 			}
 			if ttl != 0 {
 				// Only set the offer if the DNS service returns a TTL
-				s.store.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
+				s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, username, &offer)
 			}
 		}
 	} else if addRequest.Offer == nil {
@@ -286,7 +287,7 @@ func (s *LnurlPayRouter) Register(w http.ResponseWriter, r *http.Request) {
 			if err = s.dns.Remove(lastUsername); err != nil {
 				log.Printf("failed to remove DNS TXT record for %v: %v", lastUsername, err)
 			}
-			s.store.SetPubkeyDetails(r.Context(), pubkey, lastUsername, nil)
+			s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, lastUsername, nil)
 		}
 	}
 
@@ -326,14 +327,14 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return 200 if the webhook is not found
-	webhook, err := s.store.GetLastUpdated(r.Context(), pubkey)
+	webhook, err := s.store.LnUrl.GetLastUpdated(r.Context(), pubkey)
 	if err != nil || webhook == nil {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	// Remove the webhook from the store for the given pubkey
-	err = s.store.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
+	err = s.store.LnUrl.Remove(r.Context(), pubkey, removeRequest.WebhookUrl)
 	if err != nil {
 		log.Printf(
 			"failed unregister for pubkey %v url %v: %v",
@@ -351,7 +352,7 @@ func (s *LnurlPayRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		if err = s.dns.Remove(username); err != nil {
 			log.Printf("failed to remove DNS TXT record for %v: %v", username, err)
 		}
-		s.store.SetPubkeyDetails(r.Context(), pubkey, username, nil)
+		s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, username, nil)
 	}
 
 	log.Printf("registration removed: pubkey:%v url: %v\n", pubkey, removeRequest.WebhookUrl)
@@ -370,7 +371,7 @@ func (l *LnurlPayRouter) HandleLnurlPay(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
+	webhook, err := l.store.LnUrl.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -427,7 +428,7 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 
 	comment := r.URL.Query().Get("comment")
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
+	webhook, err := l.store.LnUrl.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return
@@ -487,7 +488,7 @@ func (l *LnurlPayRouter) HandleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webhook, err := l.store.GetLastUpdated(r.Context(), identifier)
+	webhook, err := l.store.LnUrl.GetLastUpdated(r.Context(), identifier)
 	if err != nil {
 		writeJsonResponse(w, NewLnurlPayErrorResponse("lnurl not found"))
 		return

@@ -16,6 +16,7 @@ import (
 	"github.com/breez/breez-lnurl/constant"
 	"github.com/breez/breez-lnurl/dns"
 	"github.com/breez/breez-lnurl/persist"
+	lnurl "github.com/breez/breez-lnurl/persist/lnurl"
 	"github.com/breez/lspd/lightning"
 	"github.com/gorilla/mux"
 )
@@ -75,12 +76,12 @@ func (w *UnregisterRecoverBolt12OfferRequest) Verify(pubkey string) error {
 }
 
 type Bolt12OfferRouter struct {
-	store   persist.Store
+	store   *persist.Store
 	dns     dns.DnsService
 	rootURL *url.URL
 }
 
-func RegisterBolt12OfferRouter(router *mux.Router, rootURL *url.URL, store persist.Store, dns dns.DnsService) {
+func RegisterBolt12OfferRouter(router *mux.Router, rootURL *url.URL, store *persist.Store, dns dns.DnsService) {
 	Bolt12OfferRouter := &Bolt12OfferRouter{
 		store:   store,
 		dns:     dns,
@@ -115,7 +116,7 @@ func (s *Bolt12OfferRouter) Recover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lastPkUsername, err := s.store.GetPubkeyDetails(r.Context(), pubkey)
+	lastPkUsername, err := s.store.LnUrl.GetPubkeyDetails(r.Context(), pubkey)
 	if err != nil || lastPkUsername == nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -158,11 +159,11 @@ func (s *Bolt12OfferRouter) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the last pubkey username for the pubkey to use it to check if the offer has changed
-	lastPkUsername, _ := s.store.GetPubkeyDetails(r.Context(), pubkey)
-	updatedPkUsername, err := s.store.SetPubkeyDetails(r.Context(), pubkey, addRequest.Username, &addRequest.Offer)
+	lastPkUsername, _ := s.store.LnUrl.GetPubkeyDetails(r.Context(), pubkey)
+	updatedPkUsername, err := s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, addRequest.Username, &addRequest.Offer)
 
 	if err != nil {
-		if serr, ok := err.(*persist.ErrorUsernameConflict); ok {
+		if serr, ok := err.(*lnurl.ErrorUsernameConflict); ok {
 			http.Error(w, serr.Error(), http.StatusConflict)
 			return
 		}
@@ -206,7 +207,7 @@ func (s *Bolt12OfferRouter) Register(w http.ResponseWriter, r *http.Request) {
 			if ttl == 0 {
 				maybeOffer = nil
 			}
-			s.store.SetPubkeyDetails(r.Context(), pubkey, username, maybeOffer)
+			s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, username, maybeOffer)
 		}
 	}
 
@@ -248,7 +249,7 @@ func (s *Bolt12OfferRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return 200 if the pubkey username is not found
-	pkUsername, err := s.store.GetPubkeyDetails(r.Context(), pubkey)
+	pkUsername, err := s.store.LnUrl.GetPubkeyDetails(r.Context(), pubkey)
 	if err != nil || pkUsername == nil {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -260,7 +261,7 @@ func (s *Bolt12OfferRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		if err = s.dns.Remove(username); err != nil {
 			log.Printf("failed to remove DNS TXT record for %v: %v", username, err)
 		}
-		s.store.SetPubkeyDetails(r.Context(), pubkey, username, nil)
+		s.store.LnUrl.SetPubkeyDetails(r.Context(), pubkey, username, nil)
 	}
 
 	log.Printf("registration removed: pubkey:%v offer: %v\n", pubkey, removeRequest.Offer)

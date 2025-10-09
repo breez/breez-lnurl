@@ -15,12 +15,10 @@ type PgStore struct {
 	pool *pgxpool.Pool
 }
 
-func NewPgStore(databaseUrl string) (*PgStore, error) {
-	pool, err := pgConnect(databaseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("pgConnect() error: %v", err)
+func NewPgStore(pool *pgxpool.Pool) *PgStore {
+	return &PgStore{
+		pool,
 	}
-	return &PgStore{pool: pool}, nil
 }
 
 func (s *PgStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
@@ -173,14 +171,6 @@ func (s *PgStore) DeleteExpired(
 		beforeUnix)
 
 	return err
-}
-
-func pgConnect(databaseUrl string) (*pgxpool.Pool, error) {
-	pgxPool, err := pgxpool.New(context.Background(), databaseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("pgxpool.New(%v): %w", databaseUrl, err)
-	}
-	return pgxPool, nil
 }
 
 func decodeIdentifier(identifier string) *[]byte {

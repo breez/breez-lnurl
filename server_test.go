@@ -33,7 +33,7 @@ const (
 	testEndpoint      = "testEndpoint"
 )
 
-func setupServer(storage persist.Store, dns dns.DnsService, cache cache.CacheService) {
+func setupServer(storage *persist.Store, dns dns.DnsService, cache cache.CacheService) {
 	serverURL, err := url.Parse(fmt.Sprintf("http://%v", serverAddress))
 	if err != nil {
 		log.Fatalf("failed to parse server URL %v", err)
@@ -77,7 +77,7 @@ func setupHookServer(t *testing.T) {
 }
 
 func TestRegisterWebhook(t *testing.T) {
-	storage := &persist.MemoryStore{}
+	storage := persist.NewMemoryStore()
 	dns := &dns.NoDns{}
 	cache := cache.NewCache(time.Minute)
 	setupServer(storage, dns, cache)
@@ -111,7 +111,7 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
@@ -156,7 +156,7 @@ func TestRegisterWebhook(t *testing.T) {
 }
 
 func TestRegisterWebhookWithUsername(t *testing.T) {
-	storage := &persist.MemoryStore{}
+	storage := persist.NewMemoryStore()
 	dns := &dns.NoDns{}
 	cache := cache.NewCache(time.Minute)
 	setupServer(storage, dns, cache)
@@ -192,7 +192,7 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
@@ -241,7 +241,7 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 }
 
 func TestRegisterWebhookWithOffer(t *testing.T) {
-	storage := &persist.MemoryStore{}
+	storage := persist.NewMemoryStore()
 	dns := &dns.NoDns{}
 	cache := cache.NewCache(time.Minute)
 	setupServer(storage, dns, cache)
@@ -279,7 +279,7 @@ func TestRegisterWebhookWithOffer(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
