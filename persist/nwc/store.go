@@ -12,6 +12,10 @@ type Webhook struct {
 	Relays     []string `json:"relays" db:"relays"`
 }
 
+func (w Webhook) Compare(userPubkey string, appPubkey string) bool {
+	return w.AppPubkey == appPubkey && w.UserPubkey == userPubkey
+}
+
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
 	Get(ctx context.Context, userPubkey string, appPubkey string) (*Webhook, error)

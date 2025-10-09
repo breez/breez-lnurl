@@ -26,7 +26,7 @@ func NewCleanupService(store Store) *CleanupService {
 	}
 }
 
-// Periodically cleans up expired webhook urls.
+// Periodically cleans up expired NWC uris
 func (c *CleanupService) Start(ctx context.Context) {
 	for {
 		before := time.Now().Add(-ExpiryDuration)

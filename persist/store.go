@@ -1,8 +1,8 @@
 package persist
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	lnurl "github.com/breez/breez-lnurl/persist/lnurl"
@@ -11,12 +11,13 @@ import (
 
 type Store struct {
 	LnUrl lnurl.Store
-	Nwc  nwc.Store
+	Nwc   nwc.Store
 }
 
 func NewMemoryStore() *Store {
-	return &Store {
+	return &Store{
 		LnUrl: lnurl.NewMemoryStore(),
+		Nwc:   nwc.NewMemoryStore(),
 	}
 }
 
@@ -27,7 +28,7 @@ func NewPgStore(databaseUrl string) (*Store, error) {
 	}
 	return &Store{
 		LnUrl: lnurl.NewPgStore(pool),
-		Nwc: nwc.NewPgStore(pool),
+		Nwc:   nwc.NewPgStore(pool),
 	}, nil
 }
 
