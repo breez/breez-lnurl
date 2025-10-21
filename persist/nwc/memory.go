@@ -17,12 +17,13 @@ func NewMemoryStore() *MemoryStore {
 }
 
 func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) error {
-	for _, hook := range m.webhooks {
+	for i, hook := range m.webhooks {
 		if hook.Compare(webhook.UserPubkey, webhook.AppPubkey) {
+			m.webhooks[i] = webhook
 			return nil
 		}
 	}
-	m.webhooks = append([]Webhook{webhook}, webhook)
+	m.webhooks = append(m.webhooks, webhook)
 	return nil
 }
 
