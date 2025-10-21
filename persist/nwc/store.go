@@ -19,6 +19,7 @@ func (w Webhook) Compare(userPubkey string, appPubkey string) bool {
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
 	Get(ctx context.Context, userPubkey string, appPubkey string) (*Webhook, error)
+	Delete(ctx context.Context, userPubkey string, appPubkey string) error
 	GetAppPubkeys(ctx context.Context) ([]string, error)
 	GetRelays(ctx context.Context) ([]string, error)
 	DeleteExpired(ctx context.Context, before time.Time) error

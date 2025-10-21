@@ -129,6 +129,19 @@ func (s *PgStore) Get(ctx context.Context, userPubkey string, appPubkey string) 
 	}, nil
 }
 
+func (s *PgStore) Delete(ctx context.Context, userPubkey string, appPubkey string) error {
+	_, err := s.pool.Exec(
+		ctx,
+		`DELETE FROM public.nwc_webhooks WHERE user_pubkey = $1 AND app_pubkey = $2`,
+		userPubkey,
+		appPubkey,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PgStore) GetAppPubkeys(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT encode(app_pubkey, 'hex') app_pubkey FROM public.nwc_webhooks`)
 	if err != nil {

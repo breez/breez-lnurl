@@ -96,3 +96,59 @@ func (s *NostrEventsRouter) Register(w http.ResponseWriter, r *http.Request) {
 	log.Printf("registration added: pubkey:%v\n", pubkey)
 	w.Write([]byte("Pubkey registered successfully"))
 }
+
+type UnregisterNostrEventsRequest struct {
+	Time      int64  `json:"time"`
+	AppPubkey string `json:"appPubkey"`
+	Signature string `json:"signature"`
+}
+
+func (w *UnregisterNostrEventsRequest) Verify(pubkey string) error {
+	messageToVerify := fmt.Sprintf("%v-%v", w.Time, w.AppPubkey)
+	verifiedPubkey, err := lightning.VerifyMessage([]byte(messageToVerify), w.Signature)
+	if err != nil {
+		return err
+	}
+	if pubkey != hex.EncodeToString(verifiedPubkey.SerializeCompressed()) {
+		return fmt.Errorf("invalid signature")
+	}
+	return nil
+}
+
+func (s *NostrEventsRouter) Unregister(w http.ResponseWriter, r *http.Request) {
+	var req UnregisterNostrEventsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("json.NewDecoder.Decode error: %v", err)
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	params := mux.Vars(r)
+	pubkey, ok := params["pubkey"]
+	if !ok {
+		http.Error(w, "invalid pubkey", http.StatusBadRequest)
+		return
+	}
+
+	if err := req.Verify(pubkey); err != nil {
+		log.Printf("failed to verify registration request: %v", err)
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	err := s.store.Nwc.Delete(r.Context(), pubkey, req.AppPubkey)
+	if err != nil {
+		log.Printf("failed to delete nwc webhook: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.manager.Resubscribe(); err != nil {
+		log.Printf("failed to resubscribe to Nostr events: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("registration deleted: pubkey:%v\n", pubkey)
+	w.Write([]byte("Pubkey unregistered successfully"))
+}

@@ -35,6 +35,15 @@ func (m *MemoryStore) Get(ctx context.Context, userPubkey string, appPubkey stri
 	return nil, fmt.Errorf("Webhook not found")
 }
 
+func (m *MemoryStore) Delete(ctx context.Context, userPubkey string, appPubkey string) error {
+	for i, hook := range m.webhooks {
+		if hook.Compare(userPubkey, appPubkey) {
+			m.webhooks = append(m.webhooks[:i], m.webhooks[i+1:]...)
+		}
+	}
+	return nil
+}
+
 func (m *MemoryStore) GetAppPubkeys(ctx context.Context) ([]string, error) {
 	var pubkeys []string
 	for _, hook := range m.webhooks {
