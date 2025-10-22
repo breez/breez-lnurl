@@ -46,10 +46,6 @@ func (nm *NostrManager) Resubscribe() error {
 		return fmt.Errorf("manager not running")
 	}
 
-	if nm.sub != nil {
-		nm.cancelSubscription()
-	}
-
 	appPubkeys, err := nm.store.Nwc.GetAppPubkeys(nm.ctx)
 	if err != nil {
 		return err
@@ -60,6 +56,7 @@ func (nm *NostrManager) Resubscribe() error {
 		Authors: appPubkeys,
 	}}
 
+	prevSub := nm.sub
 	subCtx, subCancel := context.WithCancel(nm.ctx)
 	nm.sub = &Subscription{
 		eventChannel: nm.pool.SubMany(nm.ctx, relays, filters),
@@ -67,6 +64,11 @@ func (nm *NostrManager) Resubscribe() error {
 		cancel:       subCancel,
 	}
 	go nm.forwardToNotify()
+
+	if prevSub != nil {
+		prevSub.cancel()
+		prevSub.eventChannel = nil
+	}
 
 	log.Printf("Resubscribed to %d relays for %d pubkeys using SimplePool.SubMany", len(relays), len(appPubkeys))
 	return nil
