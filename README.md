@@ -1,13 +1,19 @@
 
-# LNURL implementation for Breez SDK
+# Webhook implementation for Breez SDK
 
 ## Overview
-This server application allows mobile apps that use the Breez SDK to register webhooks and exposes an LNURL pay endpoint for that app. It also acts as a bridge between the mobile app and payer.
+This server application allows mobile apps that use the Breez SDK to register webhooks and expose different endpoints, such as LNURL-pay or NWC, for that app. It also acts as a bridge between the mobile app and payer.
 
 ## How it works?
+
+### LNURL
 - **lnurlpay Registration**: A mobile app registers a webhook to be reached by the server. The webhook is registered under a specific node pubkey. The server stores the pubkey and the webhook details in a database.
 - **LNURL Pay Endpoint**: The server exposes an LNURL pay endpoint for the mobile app (lnurlp/pubkey).
 - **Bridge**: When a payer starts the lnurl pay flow, the server receives the request and forwards it to the mobile app's webhook, providing a callback. The mobile app processes the request and responds via the callback. The server matches the response to the request and returns it to the payer.
+
+### NWC
+- **Nostr event Subscription**: A mobile app registers a webhook to be reached by the server. The webhook is registered under a specific the wallet's Nostr pubkey. The server stores the pubkey and the webhook details in a database.
+- **Offline notifications**: The server listens to events related to that Nostr pubkey, and forwards them to the mobile app's webhook. The mobile app hten wakes up and processes the NWC request.
 
 ## Getting Started
 
@@ -143,3 +149,28 @@ go run .
   - Endpoint: `/response/{responseID}`
   - Method: POST
   - Description: Handles webhook callback responses from the node.
+
+### Nostr Wallet Connect
+
+- **Register NWC Webhook:**
+  - Endpoint: `/nwc/{pubkey}`
+  - Method: POST
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON):
+    - `webhookUrl` to receive requests to
+    - `appPubkey` for the app's pubkey
+    - `relays` array of relay URLs
+    - `signature` of "<webhookUrl>-<appPubkey>-<relays>"
+  - Description: Registers a new webhook for Nostr Wallet Connect events.
+
+- **Unregister NWC Webhook:**
+  - Endpoint: `/nwc/{pubkey}`
+  - Method: DELETE
+  - Params:
+    - `pubkey` used to sign the request signature
+  - Payload (JSON):
+    - `time` in seconds since epoch
+    - `appPubkey` for the app's pubkey
+    - `signature` of "<time>-<appPubkey>"
+  - Description: Unregisters a webhook from the NWC service.
