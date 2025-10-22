@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"testing"
@@ -26,17 +27,33 @@ import (
 	"github.com/tv42/zbase32"
 )
 
+type MockDns struct{}
+
+func (m *MockDns) Set(username, offer string) (uint32, error) {
+	log.Printf("Mock DNS implementation, setting username: %s, offer: %s", username, offer)
+	return 3600, nil
+}
+
+func (m *MockDns) Remove(username string) error {
+	log.Printf("Mock DNS implementation, removing username: %s", username)
+	return nil
+}
+
 const (
-	serverAddress     = "localhost:8080"
-	hookServerAddress = "localhost:8085"
-	testFeature       = "testFeature"
-	testEndpoint      = "testEndpoint"
+	testFeature  = "testFeature"
+	testEndpoint = "testEndpoint"
 )
 
-func setupServer(storage persist.Store, dns dns.DnsService, cache cache.CacheService) {
+func setupServer(storage *persist.Store, dns dns.DnsService, cache cache.CacheService) (string, error) {
+	port, err := getRandomPort()
+	if err != nil {
+		return "", fmt.Errorf("failed to get random port %v", err)
+	}
+
+	serverAddress := fmt.Sprintf("localhost:%d", port)
 	serverURL, err := url.Parse(fmt.Sprintf("http://%v", serverAddress))
 	if err != nil {
-		log.Fatalf("failed to parse server URL %v", err)
+		return "", fmt.Errorf("failed to parse server URL %v", err)
 	}
 	server := NewServer(serverURL, serverURL, storage, dns, cache)
 	go func() {
@@ -47,9 +64,18 @@ func setupServer(storage persist.Store, dns dns.DnsService, cache cache.CacheSer
 			log.Printf("server.Serve error: %v", err)
 		}
 	}()
+
+	time.Sleep(100 * time.Millisecond)
+	return serverAddress, nil
 }
 
-func setupHookServer(t *testing.T) {
+func setupHookServer(t *testing.T) (string, error) {
+	port, err := getRandomPort()
+	if err != nil {
+		return "", fmt.Errorf("failed to get random port %v", err)
+	}
+
+	hookServerAddress := fmt.Sprintf("localhost:%d", port)
 	callbackRouter := mux.NewRouter()
 	callbackRouter.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		allBody, _ := io.ReadAll(r.Body)
@@ -74,14 +100,25 @@ func setupHookServer(t *testing.T) {
 			t.Errorf("failed to start hook server %v", err)
 		}
 	}()
+
+	time.Sleep(100 * time.Millisecond)
+	return hookServerAddress, nil
 }
 
 func TestRegisterWebhook(t *testing.T) {
-	storage := &persist.MemoryStore{}
-	dns := &dns.NoDns{}
+	storage := persist.NewMemoryStore()
+	dns := &MockDns{}
 	cache := cache.NewCache(time.Minute)
-	setupServer(storage, dns, cache)
-	setupHookServer(t)
+
+	serverAddress, err := setupServer(storage, dns, cache)
+	if err != nil {
+		t.Fatalf("Failed to setup server: %v", err)
+	}
+
+	hookServerAddress, err := setupHookServer(t)
+	if err != nil {
+		t.Fatalf("Failed to setup hook server: %v", err)
+	}
 
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
@@ -111,7 +148,7 @@ func TestRegisterWebhook(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
@@ -156,11 +193,19 @@ func TestRegisterWebhook(t *testing.T) {
 }
 
 func TestRegisterWebhookWithUsername(t *testing.T) {
-	storage := &persist.MemoryStore{}
-	dns := &dns.NoDns{}
+	storage := persist.NewMemoryStore()
+	dns := &MockDns{}
 	cache := cache.NewCache(time.Minute)
-	setupServer(storage, dns, cache)
-	setupHookServer(t)
+
+	serverAddress, err := setupServer(storage, dns, cache)
+	if err != nil {
+		t.Fatalf("Failed to setup server: %v", err)
+	}
+
+	hookServerAddress, err := setupHookServer(t)
+	if err != nil {
+		t.Fatalf("Failed to setup hook server: %v", err)
+	}
 
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
@@ -192,7 +237,7 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
@@ -241,11 +286,19 @@ func TestRegisterWebhookWithUsername(t *testing.T) {
 }
 
 func TestRegisterWebhookWithOffer(t *testing.T) {
-	storage := &persist.MemoryStore{}
-	dns := &dns.NoDns{}
+	storage := persist.NewMemoryStore()
+	dns := &MockDns{}
 	cache := cache.NewCache(time.Minute)
-	setupServer(storage, dns, cache)
-	setupHookServer(t)
+
+	serverAddress, err := setupServer(storage, dns, cache)
+	if err != nil {
+		t.Fatalf("Failed to setup server: %v", err)
+	}
+
+	hookServerAddress, err := setupHookServer(t)
+	if err != nil {
+		t.Fatalf("Failed to setup hook server: %v", err)
+	}
 
 	privKey, err := secp256k1.GeneratePrivateKey()
 	if err != nil {
@@ -279,7 +332,7 @@ func TestRegisterWebhookWithOffer(t *testing.T) {
 		t.Errorf("expected status code 200, got %v", httpRes.StatusCode)
 	}
 
-	webhook, _ := storage.GetLastUpdated(context.Background(), serializedPubkey)
+	webhook, _ := storage.LnUrl.GetLastUpdated(context.Background(), serializedPubkey)
 	if webhook == nil {
 		t.Errorf("expected webhook to be registered")
 	}
@@ -317,4 +370,14 @@ func signMessage(messgeToSign string, privKey *secp256k1.PrivateKey) (*string, e
 	}
 	signature := zbase32.EncodeToString(sig)
 	return &signature, nil
+}
+
+func getRandomPort() (int, error) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port, nil
 }

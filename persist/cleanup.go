@@ -2,40 +2,23 @@ package persist
 
 import (
 	"context"
-	"log"
-	"time"
+	lnurl "github.com/breez/breez-lnurl/persist/lnurl"
+	nwc "github.com/breez/breez-lnurl/persist/nwc"
 )
 
 type CleanupService struct {
-	store Store
+	Lnurl *lnurl.CleanupService
+	Nwc   *nwc.CleanupService
 }
 
-// The interval to clean expired webhook urls.
-var CleanupInterval time.Duration = time.Hour
-
-// The expiry duration is the time until a non-refreshed webhook url expires.
-// Currently set to 30 days.
-var ExpiryDuration time.Duration = time.Hour * 24 * 30
-
-func NewCleanupService(store Store) *CleanupService {
+func NewCleanupService(store *Store) *CleanupService {
 	return &CleanupService{
-		store: store,
+		Lnurl: lnurl.NewCleanupService(store.LnUrl),
+		Nwc:   nwc.NewCleanupService(store.Nwc),
 	}
 }
 
-// Periodically cleans up expired webhook urls.
 func (c *CleanupService) Start(ctx context.Context) {
-	for {
-		before := time.Now().Add(-ExpiryDuration)
-		err := c.store.DeleteExpired(ctx, before)
-		if err != nil {
-			log.Printf("Failed to remove expired webhook urls before %v: %v", before, err)
-		}
-		select {
-		case <-time.After(CleanupInterval):
-			continue
-		case <-ctx.Done():
-			return
-		}
-	}
+	go c.Lnurl.Start(ctx)
+	go c.Nwc.Start(ctx)
 }

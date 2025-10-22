@@ -7,14 +7,18 @@ import (
 	"time"
 
 	"gotest.tools/assert"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestPgStore(t *testing.T) {
-	pgStore, err := NewPgStore(os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Fatalf("NewPgStore() error: %v", err)
-	}
+func newPgStore(t *testing.T) *PgStore {
+	databaseUrl := os.Getenv("DATABASE_URL")
+	pool, err := pgxpool.New(context.Background(), databaseUrl)
+	assert.NilError(t, err, "failed to connect to database")
+	return NewPgStore(pool)
+}
 
+func TestPgStore(t *testing.T) {
+	pgStore := newPgStore(t)
 	assert.NilError(t, pgStore.DeleteExpired(context.Background(), time.Now()), "failed to delete expired")
 
 	// Add a webhook for some pubkey
@@ -120,10 +124,7 @@ func TestPgStore(t *testing.T) {
 }
 
 func TestPgStoreBolt12(t *testing.T) {
-	pgStore, err := NewPgStore(os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Fatalf("NewPgStore() error: %v", err)
-	}
+	pgStore := newPgStore(t)
 
 	assert.NilError(t, pgStore.DeleteExpired(context.Background(), time.Now()), "failed to delete expired")
 

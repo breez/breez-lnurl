@@ -2,117 +2,40 @@ package persist
 
 import (
 	"context"
-	"time"
+	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	lnurl "github.com/breez/breez-lnurl/persist/lnurl"
+	nwc "github.com/breez/breez-lnurl/persist/nwc"
 )
 
-type Webhook struct {
-	Pubkey   string  `json:"pubkey" db:"pubkey"`
-	Url      string  `json:"url" db:"url"`
-	Username *string `json:"username" db:"username"`
-	Offer    *string `json:"offer" db:"offer"`
+type Store struct {
+	LnUrl lnurl.Store
+	Nwc   nwc.Store
 }
 
-type PubkeyDetails struct {
-	Pubkey   string  `json:"pubkey" db:"pubkey"`
-	Username string  `json:"username" db:"username"`
-	Offer    *string `json:"offer" db:"offer"`
-}
-
-func (w Webhook) Compare(identifier string) bool {
-	if w.Pubkey == identifier {
-		return true
+func NewMemoryStore() *Store {
+	return &Store{
+		LnUrl: lnurl.NewMemoryStore(),
+		Nwc:   nwc.NewMemoryStore(),
 	}
+}
 
-	if w.Username == nil {
-		return false
+func NewPgStore(databaseUrl string) (*Store, error) {
+	pool, err := pgConnect(databaseUrl)
+	if err != nil {
+		return nil, fmt.Errorf("pgConnect() error: %v", err)
 	}
-
-	return *w.Username == identifier
-}
-
-type Store interface {
-	Set(ctx context.Context, webhook Webhook) (*Webhook, error)
-	SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error)
-	GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error)
-	GetPubkeyDetails(ctx context.Context, identifier string) (*PubkeyDetails, error)
-	Remove(ctx context.Context, pubkey, url string) error
-	DeleteExpired(ctx context.Context, before time.Time) error
-}
-
-type MemoryStore struct {
-	webhooks []Webhook
-}
-
-func (m *MemoryStore) Set(ctx context.Context, webhook Webhook) (*Webhook, error) {
-	var hooks []Webhook
-	for _, hook := range m.webhooks {
-		if hook.Pubkey == webhook.Pubkey && hook.Url == webhook.Url {
-			continue
-		}
-		hooks = append(hooks, hook)
-	}
-	m.webhooks = append([]Webhook{webhook}, hooks...)
-	return &webhook, nil
-}
-
-func (m *MemoryStore) SetPubkeyDetails(ctx context.Context, pubkey string, username string, offer *string) (*PubkeyDetails, error) {
-	var hooks []Webhook
-	var webhook Webhook
-	for _, hook := range m.webhooks {
-		if hook.Pubkey == pubkey {
-			webhook = hook
-			continue
-		}
-		hooks = append(hooks, hook)
-	}
-
-	webhook.Pubkey = pubkey
-	webhook.Username = &username
-	webhook.Offer = offer
-	m.webhooks = append([]Webhook{webhook}, hooks...)
-	return &PubkeyDetails{
-		Pubkey:   webhook.Pubkey,
-		Username: username,
-		Offer:    offer,
+	return &Store{
+		LnUrl: lnurl.NewPgStore(pool),
+		Nwc:   nwc.NewPgStore(pool),
 	}, nil
 }
 
-func (m *MemoryStore) GetLastUpdated(ctx context.Context, identifier string) (*Webhook, error) {
-	for _, hook := range m.webhooks {
-		if hook.Compare(identifier) {
-			return &hook, nil
-		}
+func pgConnect(databaseUrl string) (*pgxpool.Pool, error) {
+	pgxPool, err := pgxpool.New(context.Background(), databaseUrl)
+	if err != nil {
+		return nil, fmt.Errorf("pgxpool.New(%v): %w", databaseUrl, err)
 	}
-	return nil, nil
-}
-
-func (m *MemoryStore) GetPubkeyDetails(ctx context.Context, identifier string) (*PubkeyDetails, error) {
-	for _, hook := range m.webhooks {
-		if hook.Compare(identifier) {
-			if hook.Username != nil {
-				return &PubkeyDetails{
-					Pubkey:   hook.Pubkey,
-					Username: *hook.Username,
-					Offer:    hook.Offer,
-				}, nil
-			}
-		}
-	}
-	return nil, nil
-}
-
-func (m *MemoryStore) Remove(ctx context.Context, pubkey, url string) error {
-	var hooks []Webhook
-	for _, hook := range m.webhooks {
-		if hook.Pubkey == pubkey && hook.Url == url {
-			continue
-		}
-		hooks = append(hooks, hook)
-	}
-	m.webhooks = hooks
-	return nil
-}
-
-func (m *MemoryStore) DeleteExpired(ctx context.Context, before time.Time) error {
-	return nil
+	return pgxPool, nil
 }
