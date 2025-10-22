@@ -27,7 +27,6 @@ func RegisterNostrEventsRouter(router *mux.Router, rootURL *url.URL, store *pers
 		rootURL: rootURL,
 	}
 	NostrEventsRouter.manager.Start()
-	cleanupService.OnCleanup(NostrEventsRouter.manager.Resubscribe)
 	router.HandleFunc("/nwc/{pubkey}", NostrEventsRouter.Register).Methods("POST")
 	router.HandleFunc("/nwc/{pubkey}", NostrEventsRouter.Unregister).Methods("DELETE")
 }
@@ -87,12 +86,6 @@ func (s *NostrEventsRouter) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.manager.Resubscribe(); err != nil {
-		log.Printf("failed to resubscribe to Nostr events: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
 	log.Printf("registration added: pubkey:%v\n", pubkey)
 	w.Write([]byte("Pubkey registered successfully"))
 }
@@ -139,12 +132,6 @@ func (s *NostrEventsRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 	err := s.store.Nwc.Delete(r.Context(), pubkey, req.AppPubkey)
 	if err != nil {
 		log.Printf("failed to delete nwc webhook: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.manager.Resubscribe(); err != nil {
-		log.Printf("failed to resubscribe to Nostr events: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

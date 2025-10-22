@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/persist"
@@ -35,6 +36,23 @@ func NewNostrManager(store *persist.Store) *NostrManager {
 	return &NostrManager{
 		isRunning: false,
 		store:     store,
+	}
+}
+
+// The interval to resubscribe to events
+var ResubscribeInterval time.Duration = 1 * time.Minute
+
+func (nm *NostrManager) StartResubscriptionLoop() {
+	for {
+		if err := nm.Resubscribe(); err != nil {
+			log.Printf("failed to resubscribe to events: %v", err)
+		}
+		select {
+		case <-time.After(ResubscribeInterval):
+			continue
+		case <-nm.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -139,11 +157,11 @@ func (nm *NostrManager) SendRequest(ctx context.Context, url string, eventId str
 	return nil
 }
 
-func (nm *NostrManager) Start() error {
+func (nm *NostrManager) Start() {
 	nm.mu.Lock()
 
 	if nm.isRunning {
-		return nil
+		return
 	}
 	nm.ctx, nm.cancel = context.WithCancel(context.Background())
 	nm.pool = nostr.NewSimplePool(nm.ctx)
@@ -151,7 +169,7 @@ func (nm *NostrManager) Start() error {
 	log.Printf("NostrManager started with SimplePool")
 
 	nm.mu.Unlock()
-	return nm.Resubscribe()
+	go nm.StartResubscriptionLoop()
 }
 
 func (nm *NostrManager) Stop() {

@@ -7,9 +7,8 @@ import (
 )
 
 type CleanupService struct {
-	store     Store
-	channel   chan struct{}
-	callbacks [](func() error)
+	store   Store
+	channel chan struct{}
 }
 
 // The interval to clean expired listeners
@@ -20,9 +19,8 @@ var ExpiryDuration time.Duration = time.Hour * 24 * 7
 
 func NewCleanupService(store Store) *CleanupService {
 	return &CleanupService{
-		store:     store,
-		channel:   make(chan struct{}),
-		callbacks: [](func() error){},
+		store:   store,
+		channel: make(chan struct{}),
 	}
 }
 
@@ -34,11 +32,6 @@ func (c *CleanupService) Start(ctx context.Context) {
 		if err != nil {
 			log.Printf("Failed to remove expired listeners before %v: %v", before, err)
 		}
-		for _, cb := range c.callbacks {
-			if err := cb(); err != nil {
-				log.Printf("Failed to run cleanup callback: %v", err)
-			}
-		}
 		select {
 		case <-time.After(CleanupInterval):
 			continue
@@ -46,8 +39,4 @@ func (c *CleanupService) Start(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func (c *CleanupService) OnCleanup(cb func() error) {
-	c.callbacks = append(c.callbacks, cb)
 }
