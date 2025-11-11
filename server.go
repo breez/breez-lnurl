@@ -39,7 +39,7 @@ func NewServer(internalURL *url.URL, externalURL *url.URL, storage *persist.Stor
 }
 
 func (s *Server) Serve() error {
-	return http.ListenAndServe(s.internalURL.Host, s.rootHandler)
+	return http.ListenAndServe("0.0.0.0:8080", s.rootHandler)
 }
 
 func initRootHandler(externalURL *url.URL, storage *persist.Store, dns dns.DnsService, cache cache.CacheService) *mux.Router {
