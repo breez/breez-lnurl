@@ -93,7 +93,7 @@ func (nm *NostrManager) Resubscribe() error {
 	prevSub := nm.sub
 	subCtx, subCancel := context.WithCancel(nm.ctx)
 	nm.sub = &Subscription{
-		eventChannel: nm.pool.SubMany(nm.ctx, relays, filters),
+		eventChannel: nm.pool.SubMany(nm.ctx, []string{"wss://nos.lol", "wss://nostr.land"}, filters),
 		ctx:          subCtx,
 		cancel:       subCancel,
 	}
