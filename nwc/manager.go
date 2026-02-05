@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"fiatjaf.com/nostr"
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/persist"
-	"github.com/nbd-wtf/go-nostr"
 )
 
 type Subscription struct {
@@ -24,21 +24,21 @@ type Subscription struct {
 }
 
 type NostrManager struct {
-	pool            *nostr.SimplePool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.RWMutex
-	isRunning       bool
-	sub             *Subscription
-	store           *persist.Store
-	lastUserPubkeys int
+	pool       *nostr.Pool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	mu         sync.RWMutex
+	isRunning  bool
+	sub        *Subscription
+	store      *persist.Store
+	hasChanged bool
 }
 
 func NewNostrManager(store *persist.Store) *NostrManager {
 	return &NostrManager{
-		isRunning:       false,
-		store:           store,
-		lastUserPubkeys: 0,
+		isRunning:  false,
+		store:      store,
+		hasChanged: true,
 	}
 }
 
@@ -58,6 +58,12 @@ func (nm *NostrManager) StartResubscriptionLoop() {
 			return
 		}
 	}
+}
+
+func (nm *NostrManager) SetChanged(changed bool) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.hasChanged = changed
 }
 
 func (nm *NostrManager) Resubscribe() error {
@@ -80,35 +86,52 @@ func (nm *NostrManager) Resubscribe() error {
 	}
 
 	// Only resubscribe if pubkeys have changed to avoid rate limiting
-	if nm.lastUserPubkeys == len(activeSubscriptions) {
+	if !nm.hasChanged {
 		return nil
 	}
 
 	relays, err := nm.store.Nwc.GetRelays(nm.ctx)
-
 	filters := nostr.Filter{
 		Tags: nostr.TagMap{
 			"p": slices.Collect(maps.Keys(activeSubscriptions)),
 		},
-		Kinds: []int{nostr.KindNWCWalletRequest, nostr.KindZapRequest},
+		Kinds: []nostr.Kind{nostr.KindNWCWalletRequest, nostr.KindZapRequest},
 	}
-
 	prevSub := nm.sub
 	subCtx, subCancel := context.WithCancel(nm.ctx)
+	eventChannel, closeChannel := nm.pool.SubscribeManyNotifyClosed(subCtx, relays, filters, nostr.SubscriptionOptions{})
+
 	nm.sub = &Subscription{
-		eventChannel: nm.pool.SubscribeMany(nm.ctx, relays, filters),
+		eventChannel: eventChannel,
 		ctx:          subCtx,
 		cancel:       subCancel,
 	}
+	go nm.trackRelayClose(closeChannel)
 	go nm.forwardToNotify(activeSubscriptions)
 	if prevSub != nil {
 		prevSub.cancel()
 		prevSub.eventChannel = nil
 	}
 
-	nm.lastUserPubkeys = len(activeSubscriptions)
+	nm.hasChanged = false
 	log.Printf("Resubscribed to %d relays for %d user pubkeys using SimplePool.SubscribeMany", len(relays), len(activeSubscriptions))
 	return nil
+}
+
+func (nm *NostrManager) trackRelayClose(closingChan chan nostr.RelayClosed) {
+	sub := nm.sub
+	if sub == nil {
+		return
+	}
+	for {
+		select {
+		case close := <-closingChan:
+			log.Printf("Received CLOSE from %s - Reason: %s\n", close.Relay.URL, close.Reason)
+		case <-sub.ctx.Done():
+		case <-nm.ctx.Done():
+			return
+		}
+	}
 }
 
 func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string) {
@@ -116,50 +139,49 @@ func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string)
 	if sub == nil {
 		return
 	}
-
 	for {
 		select {
 		case incomingEvent := <-sub.eventChannel:
-			if incomingEvent.Event == nil {
-				return
-			}
+			eventId := incomingEvent.ID.Hex()
+			eventAuthor := incomingEvent.PubKey.Hex()
 
 			pTag := incomingEvent.Tags.Find("p")
 			if pTag == nil {
-				log.Printf("failed to identify user for event %v: no wallet service pubkey provided", incomingEvent.ID)
+				log.Printf("failed to identify user for event %s: no wallet service pubkey provided", eventId)
 				continue
 			}
-
 			walletServicePubkey := pTag[1]
-			appPubkeys := activeSubscriptions[walletServicePubkey]
-			if appPubkeys == nil || slices.Index(appPubkeys, incomingEvent.PubKey) == -1 {
+			if walletServicePubkey == "" {
 				continue
 			}
-
-			if _, err := incomingEvent.CheckSignature(); err != nil {
-				log.Printf("failed to verify signature for event %v: %v", incomingEvent.ID, err)
+			appPubkeys, exists := activeSubscriptions[walletServicePubkey]
+			if !exists || slices.Index(appPubkeys, eventAuthor) == -1 {
 				continue
 			}
-			log.Printf("got incoming event: %s", incomingEvent.ID)
+			if !incomingEvent.VerifySignature() {
+				log.Printf("failed to verify signature for event %v", eventId)
+				continue
+			}
+			log.Printf("got incoming event: %s", eventId)
 
 			// Check if event has already been forwarded (deduplication)
-			alreadyForwarded, err := nm.store.Nwc.IsEventForwarded(sub.ctx, incomingEvent.Event.ID)
+			alreadyForwarded, err := nm.store.Nwc.IsEventForwarded(sub.ctx, eventId)
 			if err != nil {
-				log.Printf("failed to check if event %v was already forwarded: %v", incomingEvent.ID, err)
+				log.Printf("failed to check if event %v was already forwarded: %s", eventId, err)
 				continue
 			}
 			if alreadyForwarded {
-				log.Printf("event %v already forwarded, skipping duplicate", incomingEvent.ID)
+				log.Printf("event %v already forwarded, skipping duplicate", eventId)
 				continue
 			}
 
-			webhook, err := nm.store.Nwc.Get(sub.ctx, walletServicePubkey, incomingEvent.PubKey)
+			webhook, err := nm.store.Nwc.Get(sub.ctx, walletServicePubkey, eventAuthor)
 			if err != nil {
-				log.Printf("failed to retrieve webhook for event %v: %v", incomingEvent.ID, err)
+				log.Printf("failed to retrieve webhook for event %v: %v", eventId, err)
 				continue
 			}
 			if webhook == nil {
-				log.Printf("webhook not found for event %v. Skipping.", incomingEvent.ID)
+				log.Printf("webhook not found for event %v. Skipping.", eventId)
 				continue
 			}
 
@@ -176,9 +198,8 @@ func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string)
 				if err != nil {
 					log.Printf("failed to mark event %v as forwarded: %v", id, err)
 				}
-			}(webhook.Url, incomingEvent.ID, walletServicePubkey, incomingEvent.PubKey)
+			}(webhook.Url, eventId, walletServicePubkey, eventAuthor)
 		case <-sub.ctx.Done():
-			return
 		case <-nm.ctx.Done():
 			return
 		}
@@ -224,7 +245,7 @@ func (nm *NostrManager) Start() {
 		return
 	}
 	nm.ctx, nm.cancel = context.WithCancel(context.Background())
-	nm.pool = nostr.NewSimplePool(nm.ctx)
+	nm.pool = nostr.NewPool(nostr.PoolOptions{})
 	nm.isRunning = true
 	log.Printf("NostrManager started with SimplePool")
 
