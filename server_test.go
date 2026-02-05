@@ -364,10 +364,7 @@ func signMessage(messgeToSign string, privKey *secp256k1.PrivateKey) (*string, e
 	msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 	first := sha256.Sum256([]byte(msg))
 	second := sha256.Sum256(first[:])
-	sig, err := ecdsa.SignCompact(privKey, second[:], true)
-	if err != nil {
-		return nil, err
-	}
+	sig := ecdsa.SignCompact(privKey, second[:], true)
 	signature := zbase32.EncodeToString(sig)
 	return &signature, nil
 }

@@ -41,10 +41,7 @@ func TestPayRegisterLnurlPayRequestValidUsername(t *testing.T) {
 		msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 		first := sha256.Sum256([]byte(msg))
 		second := sha256.Sum256(first[:])
-		sig, err := ecdsa.SignCompact(privKey, second[:], true)
-		if err != nil {
-			t.Errorf("failed to sign signature %v", err)
-		}
+		sig := ecdsa.SignCompact(privKey, second[:], true)
 		payRequest := RegisterLnurlPayRequest{
 			Username:   &validUsername,
 			Time:       time,
@@ -83,10 +80,7 @@ func TestPayRegisterLnurlPayRequestInvalidUsername(t *testing.T) {
 		msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 		first := sha256.Sum256([]byte(msg))
 		second := sha256.Sum256(first[:])
-		sig, err := ecdsa.SignCompact(privKey, second[:], true)
-		if err != nil {
-			t.Errorf("failed to sign signature %v", err)
-		}
+		sig := ecdsa.SignCompact(privKey, second[:], true)
 		payRequest := RegisterLnurlPayRequest{
 			Username:   &invalidUsername,
 			Time:       time,
@@ -121,10 +115,7 @@ func TestPayRegisterLnurlPayRequestValidOffers(t *testing.T) {
 		msg := append(lightning.SignedMsgPrefix, []byte(messageToSign)...)
 		first := sha256.Sum256([]byte(msg))
 		second := sha256.Sum256(first[:])
-		sig, err := ecdsa.SignCompact(privKey, second[:], true)
-		if err != nil {
-			t.Errorf("failed to sign signature %v", err)
-		}
+		sig := ecdsa.SignCompact(privKey, second[:], true)
 		payRequest := RegisterLnurlPayRequest{
 			Time:       time,
 			WebhookUrl: url,
@@ -162,10 +153,7 @@ func TestPayRegisterLnurlPayRequestInvalidOffers(t *testing.T) {
 		msg := append(lightning.SignedMsgPrefix, []byte(messgeToSign)...)
 		first := sha256.Sum256([]byte(msg))
 		second := sha256.Sum256(first[:])
-		sig, err := ecdsa.SignCompact(privKey, second[:], true)
-		if err != nil {
-			t.Errorf("failed to sign signature %v", err)
-		}
+		sig := ecdsa.SignCompact(privKey, second[:], true)
 		payRequest := RegisterLnurlPayRequest{
 			Time:       time,
 			WebhookUrl: url,
