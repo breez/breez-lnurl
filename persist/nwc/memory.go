@@ -47,12 +47,12 @@ func (m *MemoryStore) Delete(ctx context.Context, walletServicePubkey string, ap
 	return nil
 }
 
-func (m *MemoryStore) GetAppPubkeys(ctx context.Context) ([]string, error) {
-	var pubkeys []string
+func (m *MemoryStore) GetSubscriptions(ctx context.Context) (map[string][]string, error) {
+	subs := make(map[string][]string)
 	for _, hook := range m.webhooks {
-		pubkeys = append(pubkeys, hook.AppPubkey)
+		subs[hook.WalletServicePubkey] = append(subs[hook.WalletServicePubkey], hook.AppPubkey)
 	}
-	return pubkeys, nil
+	return subs, nil
 }
 
 func (m *MemoryStore) GetRelays(ctx context.Context) ([]string, error) {

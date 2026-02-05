@@ -175,13 +175,25 @@ func (s *PgStore) Delete(ctx context.Context, walletServicePubkey string, appPub
 	return nil
 }
 
-func (s *PgStore) GetAppPubkeys(ctx context.Context) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT encode(app_pubkey, 'hex') app_pubkey FROM public.nwc_webhooks`)
+func (s *PgStore) GetSubscriptions(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT encode(wallet_service_pubkey, 'hex'), encode(app_pubkey, 'hex') FROM public.nwc_webhooks`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return rowsToArray(rows), nil
+
+	subs := make(map[string][]string)
+	for rows.Next() {
+		var userPubkey, appPubkey string
+		if err := rows.Scan(&userPubkey, &appPubkey); err != nil {
+			return nil, err
+		}
+		subs[userPubkey] = append(subs[userPubkey], appPubkey)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return subs, nil
 }
 
 func (s *PgStore) GetRelays(ctx context.Context) ([]string, error) {

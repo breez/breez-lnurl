@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -19,24 +20,25 @@ import (
 type Subscription struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
-	eventChannel chan nostr.IncomingEvent
+	eventChannel chan nostr.RelayEvent
 }
 
 type NostrManager struct {
-	pool           *nostr.SimplePool
-	ctx            context.Context
-	cancel         context.CancelFunc
-	mu             sync.RWMutex
-	isRunning      bool
-	sub            *Subscription
-	store          *persist.Store
-	lastAppPubkeys []string
+	pool            *nostr.SimplePool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
+	isRunning       bool
+	sub             *Subscription
+	store           *persist.Store
+	lastUserPubkeys int
 }
 
 func NewNostrManager(store *persist.Store) *NostrManager {
 	return &NostrManager{
-		isRunning: false,
-		store:     store,
+		isRunning:       false,
+		store:           store,
+		lastUserPubkeys: 0,
 	}
 }
 
@@ -66,50 +68,50 @@ func (nm *NostrManager) Resubscribe() error {
 		return fmt.Errorf("manager not running")
 	}
 
-	appPubkeys, err := nm.store.Nwc.GetAppPubkeys(nm.ctx)
+	activeSubscriptions, err := nm.store.Nwc.GetSubscriptions(nm.ctx)
 	if err != nil {
 		return err
 	}
 
 	// Only resubscribe if we have pubkeys to subscribe to
-	if len(appPubkeys) == 0 {
-		log.Printf("No active app pubkeys. Waiting for registrations...")
+	if len(activeSubscriptions) == 0 {
+		log.Printf("No active subscriptions. Waiting for registrations...")
 		return nil
 	}
 
 	// Only resubscribe if pubkeys have changed to avoid rate limiting
-	if nm.lastAppPubkeys != nil && slices.Compare(nm.lastAppPubkeys, appPubkeys) == 0 {
+	if nm.lastUserPubkeys == len(activeSubscriptions) {
 		return nil
 	}
 
 	relays, err := nm.store.Nwc.GetRelays(nm.ctx)
 
-	filters := nostr.Filters{
-		{
-			Authors: appPubkeys,
+	filters := nostr.Filter{
+		Tags: nostr.TagMap{
+			"p": slices.Collect(maps.Keys(activeSubscriptions)),
 		},
+		Kinds: []int{nostr.KindNWCWalletRequest, nostr.KindZapRequest},
 	}
 
 	prevSub := nm.sub
 	subCtx, subCancel := context.WithCancel(nm.ctx)
 	nm.sub = &Subscription{
-		eventChannel: nm.pool.SubMany(nm.ctx, []string{"wss://nos.lol", "wss://nostr.land"}, filters),
+		eventChannel: nm.pool.SubscribeMany(nm.ctx, relays, filters),
 		ctx:          subCtx,
 		cancel:       subCancel,
 	}
-	go nm.forwardToNotify()
-
+	go nm.forwardToNotify(activeSubscriptions)
 	if prevSub != nil {
 		prevSub.cancel()
 		prevSub.eventChannel = nil
 	}
 
-	nm.lastAppPubkeys = appPubkeys
-	log.Printf("Resubscribed to %d relays for %d app pubkeys using SimplePool.SubMany", len(relays), len(appPubkeys))
+	nm.lastUserPubkeys = len(activeSubscriptions)
+	log.Printf("Resubscribed to %d relays for %d user pubkeys using SimplePool.SubscribeMany", len(relays), len(activeSubscriptions))
 	return nil
 }
 
-func (nm *NostrManager) forwardToNotify() {
+func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string) {
 	sub := nm.sub
 	if sub == nil {
 		return
@@ -122,19 +124,24 @@ func (nm *NostrManager) forwardToNotify() {
 				return
 			}
 
-			log.Printf("got incoming event: %v", incomingEvent.Event.String())
-			if _, err := incomingEvent.CheckSignature(); err != nil {
-				log.Printf("failed to verify signature for event %v: %v", incomingEvent.ID, err)
-				continue
-			}
-
-			pTag := incomingEvent.Tags.GetFirst([]string{"p"})
+			pTag := incomingEvent.Tags.Find("p")
 			if pTag == nil {
 				log.Printf("failed to identify user for event %v: no wallet service pubkey provided", incomingEvent.ID)
 				continue
 			}
 
-			walletServicePubkey := pTag.Value()
+			walletServicePubkey := pTag[1]
+			appPubkeys := activeSubscriptions[walletServicePubkey]
+			if appPubkeys == nil || slices.Index(appPubkeys, incomingEvent.PubKey) == -1 {
+				continue
+			}
+
+			if _, err := incomingEvent.CheckSignature(); err != nil {
+				log.Printf("failed to verify signature for event %v: %v", incomingEvent.ID, err)
+				continue
+			}
+			log.Printf("got incoming event: %s", incomingEvent.ID)
+
 			// Check if event has already been forwarded (deduplication)
 			alreadyForwarded, err := nm.store.Nwc.IsEventForwarded(sub.ctx, incomingEvent.Event.ID)
 			if err != nil {
@@ -169,7 +176,7 @@ func (nm *NostrManager) forwardToNotify() {
 				if err != nil {
 					log.Printf("failed to mark event %v as forwarded: %v", id, err)
 				}
-			}(webhook.Url, incomingEvent.Event.ID, walletServicePubkey, incomingEvent.PubKey)
+			}(webhook.Url, incomingEvent.ID, walletServicePubkey, incomingEvent.PubKey)
 		case <-sub.ctx.Done():
 			return
 		case <-nm.ctx.Done():

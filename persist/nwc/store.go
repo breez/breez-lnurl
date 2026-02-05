@@ -20,7 +20,7 @@ type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
 	Get(ctx context.Context, walletServicePubkey string, appPubkey string) (*Webhook, error)
 	Delete(ctx context.Context, walletServicePubkey string, appPubkey string) error
-	GetAppPubkeys(ctx context.Context) ([]string, error)
+	GetSubscriptions(ctx context.Context) (map[string][]string, error)
 	GetRelays(ctx context.Context) ([]string, error)
 	DeleteExpired(ctx context.Context, before time.Time) error
 	// Event deduplication methods
