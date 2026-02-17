@@ -450,6 +450,11 @@ func (l *LnurlPayRouter) HandleInvoice(w http.ResponseWriter, r *http.Request) {
 		message.Data["comment"] = comment
 	}
 
+	nostr := r.URL.Query().Get("nostr")
+	if nostr != "" {
+		message.Data["nostr"] = nostr
+	}
+
 	// WA: This is a workaround to support backwards compatibility with clients not supporting LNURL-verify.
 	// If the LNURL registration has an offer, we know we can add the verify_url to the request as they are in the same release.
 	if webhook.Offer != nil {
