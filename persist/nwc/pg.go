@@ -59,32 +59,32 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) error {
 	}
 
 	for _, relayUrl := range webhook.Relays {
-		if _, exists := relays[relayUrl]; exists {
-			continue
+		relayId, exists := relays[relayUrl]
+		if !exists {
+			relayId = len(relays) % constant.NWC_MAX_RELAYS_LENGTH
+			_, err = tx.Exec(
+				ctx,
+				`INSERT INTO public.nwc_relays (id, url)
+                 VALUES ($1, $2)
+                 ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url`,
+				relayId, relayUrl,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert relay: %w", err)
+			}
+			relays[relayUrl] = relayId
 		}
 
-		newRelayId := len(relays) % constant.NWC_MAX_RELAYS_LENGTH
-		_, err = tx.Exec(
-			ctx,
-			`INSERT INTO public.nwc_relays (id, url) 
-             VALUES ($1, $2) 
-             ON CONFLICT (id) DO UPDATE SET url = EXCLUDED.url`,
-			newRelayId, relayUrl,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert relay: %w", err)
-		}
 		_, err = tx.Exec(
 			ctx,
 			`INSERT INTO public.nwc_webhooks_relays (webhook_id, relay_id)
 		 	 VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 			webhookId,
-			newRelayId,
+			relayId,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to link webhook and relay: %w", err)
 		}
-		relays[relayUrl] = newRelayId
 	}
 
 	return tx.Commit(ctx)
@@ -175,20 +175,38 @@ func (s *PgStore) Delete(ctx context.Context, walletServicePubkey string, appPub
 	return nil
 }
 
-func (s *PgStore) GetSubscriptions(ctx context.Context) (map[string][]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT encode(wallet_service_pubkey, 'hex'), encode(app_pubkey, 'hex') FROM public.nwc_webhooks`)
+func (s *PgStore) GetSubscriptionDetails(ctx context.Context) (map[string]SubscriptionDetails, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`SELECT encode(w.wallet_service_pubkey, 'hex'), encode(w.app_pubkey, 'hex'), nr.url
+		 FROM public.nwc_webhooks w
+		 LEFT JOIN public.nwc_webhooks_relays nwr ON w.id = nwr.webhook_id
+		 LEFT JOIN public.nwc_relays nr ON nwr.relay_id = nr.id`,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	subs := make(map[string][]string)
+	subs := make(map[string]SubscriptionDetails)
 	for rows.Next() {
-		var userPubkey, appPubkey string
-		if err := rows.Scan(&userPubkey, &appPubkey); err != nil {
+		var walletServicePubkey, appPubkey string
+		var relayUrl *string
+		if err := rows.Scan(&walletServicePubkey, &appPubkey, &relayUrl); err != nil {
 			return nil, err
 		}
-		subs[userPubkey] = append(subs[userPubkey], appPubkey)
+		sub, ok := subs[walletServicePubkey]
+		if !ok {
+			sub = SubscriptionDetails{
+				AppPubkeys: make(map[string]bool),
+				Relays:     make(map[string]bool),
+			}
+		}
+		sub.AppPubkeys[appPubkey] = true
+		if relayUrl != nil {
+			sub.Relays[*relayUrl] = true
+		}
+		subs[walletServicePubkey] = sub
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

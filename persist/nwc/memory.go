@@ -47,10 +47,21 @@ func (m *MemoryStore) Delete(ctx context.Context, walletServicePubkey string, ap
 	return nil
 }
 
-func (m *MemoryStore) GetSubscriptions(ctx context.Context) (map[string][]string, error) {
-	subs := make(map[string][]string)
+func (m *MemoryStore) GetSubscriptionDetails(ctx context.Context) (map[string]SubscriptionDetails, error) {
+	subs := make(map[string]SubscriptionDetails)
 	for _, hook := range m.webhooks {
-		subs[hook.WalletServicePubkey] = append(subs[hook.WalletServicePubkey], hook.AppPubkey)
+		sub, ok := subs[hook.WalletServicePubkey]
+		if !ok {
+			sub = SubscriptionDetails{
+				AppPubkeys: make(map[string]bool),
+				Relays:     make(map[string]bool),
+			}
+		}
+		sub.AppPubkeys[hook.AppPubkey] = true
+		for _, relay := range hook.Relays {
+			sub.Relays[relay] = true
+		}
+		subs[hook.WalletServicePubkey] = sub
 	}
 	return subs, nil
 }

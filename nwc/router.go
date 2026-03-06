@@ -87,8 +87,9 @@ func (s *NostrEventsRouter) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.manager.AddSubscription(registerRequest.WalletServicePubkey, registerRequest.AppPubkey, registerRequest.Relays)
+
 	log.Printf("registration added: pubkey:%v\n", registerRequest.WalletServicePubkey)
-	s.manager.SetChanged(true)
 	w.Write([]byte("Pubkey registered successfully"))
 }
 
@@ -139,7 +140,8 @@ func (s *NostrEventsRouter) Unregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.manager.RemoveSubscription(req.WalletServicePubkey, req.AppPubkey)
+
 	log.Printf("registration deleted: pubkey:%v\n", req.WalletServicePubkey)
-	s.manager.SetChanged(true)
 	w.Write([]byte("Pubkey unregistered successfully"))
 }

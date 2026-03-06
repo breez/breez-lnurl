@@ -6,156 +6,124 @@ import (
 	"fmt"
 	"log"
 	"maps"
-	"net/http"
 	"slices"
+
+	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"fiatjaf.com/nostr"
 	"github.com/breez/breez-lnurl/channel"
 	"github.com/breez/breez-lnurl/persist"
+	nwc "github.com/breez/breez-lnurl/persist/nwc"
 )
 
 type Subscription struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	eventChannel chan nostr.RelayEvent
+	details      *nwc.SubscriptionDetails
 }
 
 type NostrManager struct {
-	pool       *nostr.Pool
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
-	isRunning  bool
-	sub        *Subscription
-	store      *persist.Store
-	hasChanged bool
+	pool      *nostr.Pool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.RWMutex
+	isRunning bool
+	subs      map[string]*Subscription
+	store     *persist.Store
 }
 
 func NewNostrManager(store *persist.Store) *NostrManager {
 	return &NostrManager{
-		isRunning:  false,
-		store:      store,
-		hasChanged: true,
+		isRunning: false,
+		store:     store,
+		subs:      make(map[string]*Subscription),
 	}
 }
 
-// The interval to check if resubscription is needed
-// Only resubscribe if pubkeys have changed to avoid rate limiting
-var ResubscribeInterval time.Duration = 1 * time.Minute
-
-func (nm *NostrManager) StartResubscriptionLoop() {
-	for {
-		if err := nm.Resubscribe(); err != nil {
-			log.Printf("failed to resubscribe to events: %v", err)
-		}
-		select {
-		case <-time.After(ResubscribeInterval):
-			continue
-		case <-nm.ctx.Done():
-			return
-		}
-	}
-}
-
-func (nm *NostrManager) SetChanged(changed bool) {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
-	nm.hasChanged = changed
-}
-
-func (nm *NostrManager) Resubscribe() error {
+func (nm *NostrManager) AddSubscription(walletServicePubkey string, appPubkey string, relays []string) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 
-	if !nm.isRunning {
-		return fmt.Errorf("manager not running")
+	details := &nwc.SubscriptionDetails{
+		AppPubkeys: make(map[string]bool),
+		Relays:     make(map[string]bool),
+	}
+	details.AppPubkeys[appPubkey] = true
+	for _, relay := range relays {
+		details.Relays[relay] = true
 	}
 
-	activeSubscriptions, err := nm.store.Nwc.GetSubscriptions(nm.ctx)
-	if err != nil {
-		return err
+	sub, exists := nm.subs[walletServicePubkey]
+	if exists {
+		for appPubkey := range sub.details.AppPubkeys {
+			details.AppPubkeys[appPubkey] = true
+		}
+		for relay := range sub.details.Relays {
+			details.Relays[relay] = true
+		}
+		sub.cancel()
 	}
 
-	// Only resubscribe if we have pubkeys to subscribe to
-	if len(activeSubscriptions) == 0 {
-		log.Printf("No active subscriptions. Waiting for registrations...")
-		return nil
-	}
+	nm.addSubscriptionInner(walletServicePubkey, details)
+}
 
-	// Only resubscribe if pubkeys have changed to avoid rate limiting
-	if !nm.hasChanged {
-		return nil
-	}
-
-	relays, err := nm.store.Nwc.GetRelays(nm.ctx)
+func (nm *NostrManager) addSubscriptionInner(walletServicePubkey string, subDetails *nwc.SubscriptionDetails) {
 	filters := nostr.Filter{
 		Tags: nostr.TagMap{
-			"p": slices.Collect(maps.Keys(activeSubscriptions)),
+			"p": []string{walletServicePubkey},
 		},
-		Kinds: []nostr.Kind{nostr.KindNWCWalletRequest, nostr.KindZapRequest},
+		Kinds: []nostr.Kind{nostr.KindNWCWalletRequest},
 	}
-	prevSub := nm.sub
 	subCtx, subCancel := context.WithCancel(nm.ctx)
-	eventChannel, closeChannel := nm.pool.SubscribeManyNotifyClosed(subCtx, relays, filters, nostr.SubscriptionOptions{})
-
-	nm.sub = &Subscription{
-		eventChannel: eventChannel,
+	relays := slices.Collect(maps.Keys(subDetails.Relays))
+	eventChannel := nm.pool.SubscribeMany(subCtx, relays, filters, nostr.SubscriptionOptions{})
+	sub := Subscription{
 		ctx:          subCtx,
 		cancel:       subCancel,
+		eventChannel: eventChannel,
+		details:      subDetails,
 	}
-	go nm.trackRelayClose(closeChannel)
-	go nm.forwardToNotify(activeSubscriptions)
-	if prevSub != nil {
-		prevSub.cancel()
-		prevSub.eventChannel = nil
-	}
+	nm.subs[walletServicePubkey] = &sub
 
-	nm.hasChanged = false
-	log.Printf("Resubscribed to %d relays for %d user pubkeys using SimplePool.SubscribeMany", len(relays), len(activeSubscriptions))
-	return nil
+	log.Printf("Subscribed to %d relays for wallet pubkey %s", len(subDetails.Relays), walletServicePubkey)
+
+	go nm.forwardToNotify(&sub, walletServicePubkey)
 }
 
-func (nm *NostrManager) trackRelayClose(closingChan chan nostr.RelayClosed) {
-	sub := nm.sub
+func (nm *NostrManager) RemoveSubscription(walletServicePubkey string, appPubkey string) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+
+	existingSub, exists := nm.subs[walletServicePubkey]
+	if !exists {
+		return
+	}
+
+	delete(existingSub.details.AppPubkeys, appPubkey)
+	if len(existingSub.details.AppPubkeys) == 0 {
+		nm.cancelSubscription(existingSub, walletServicePubkey)
+		return
+	}
+
+	existingSub.cancel()
+	nm.addSubscriptionInner(walletServicePubkey, existingSub.details)
+}
+
+func (nm *NostrManager) forwardToNotify(sub *Subscription, walletServicePubkey string) {
 	if sub == nil {
 		return
 	}
-	for {
-		select {
-		case close := <-closingChan:
-			log.Printf("Received CLOSE from %s - Reason: %s\n", close.Relay.URL, close.Reason)
-		case <-sub.ctx.Done():
-		case <-nm.ctx.Done():
-			return
-		}
-	}
-}
 
-func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string) {
-	sub := nm.sub
-	if sub == nil {
-		return
-	}
 	for {
 		select {
 		case incomingEvent := <-sub.eventChannel:
 			eventId := incomingEvent.ID.Hex()
 			eventAuthor := incomingEvent.PubKey.Hex()
 
-			pTag := incomingEvent.Tags.Find("p")
-			if pTag == nil {
-				log.Printf("failed to identify user for event %s: no wallet service pubkey provided", eventId)
-				continue
-			}
-			walletServicePubkey := pTag[1]
-			if walletServicePubkey == "" {
-				continue
-			}
-			appPubkeys, exists := activeSubscriptions[walletServicePubkey]
-			if !exists || slices.Index(appPubkeys, eventAuthor) == -1 {
+			if _, exists := sub.details.AppPubkeys[eventAuthor]; !exists {
 				continue
 			}
 			if !incomingEvent.VerifySignature() {
@@ -200,6 +168,7 @@ func (nm *NostrManager) forwardToNotify(activeSubscriptions map[string][]string)
 				}
 			}(webhook.Url, eventId, walletServicePubkey, eventAuthor)
 		case <-sub.ctx.Done():
+			return
 		case <-nm.ctx.Done():
 			return
 		}
@@ -238,19 +207,28 @@ func (nm *NostrManager) SendRequest(ctx context.Context, url string, eventId str
 	return nil
 }
 
-func (nm *NostrManager) Start() {
+func (nm *NostrManager) Start() error {
 	nm.mu.Lock()
+	defer nm.mu.Unlock()
 
 	if nm.isRunning {
-		return
+		return nil
 	}
 	nm.ctx, nm.cancel = context.WithCancel(context.Background())
 	nm.pool = nostr.NewPool(nostr.PoolOptions{})
 	nm.isRunning = true
-	log.Printf("NostrManager started with SimplePool")
 
-	nm.mu.Unlock()
-	go nm.StartResubscriptionLoop()
+	activeSubscriptions, err := nm.store.Nwc.GetSubscriptionDetails(nm.ctx)
+	if err != nil {
+		return err
+	}
+
+	for walletServicePubkey, subDetails := range activeSubscriptions {
+		nm.addSubscriptionInner(walletServicePubkey, &subDetails)
+	}
+
+	log.Printf("Started Nostr manager")
+	return nil
 }
 
 func (nm *NostrManager) Stop() {
@@ -260,9 +238,8 @@ func (nm *NostrManager) Stop() {
 	if !nm.isRunning {
 		return
 	}
-
-	if nm.sub != nil {
-		nm.cancelSubscription()
+	for walletServicePubkey, sub := range nm.subs {
+		nm.cancelSubscription(sub, walletServicePubkey)
 	}
 
 	if nm.cancel != nil {
@@ -270,12 +247,11 @@ func (nm *NostrManager) Stop() {
 	}
 
 	nm.isRunning = false
-	log.Printf("NostrManager stopped")
+	log.Printf("Stopped Nostr manager")
 }
 
-func (nm *NostrManager) cancelSubscription() {
-	nm.sub.cancel()
-	close(nm.sub.eventChannel)
-	nm.sub.eventChannel = nil
-	nm.sub = nil
+func (nm *NostrManager) cancelSubscription(s *Subscription, walletServicePubkey string) {
+	s.cancel()
+	close(s.eventChannel)
+	delete(nm.subs, walletServicePubkey)
 }

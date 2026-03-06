@@ -16,11 +16,16 @@ func (w Webhook) Compare(walletServicePubkey string, appPubkey string) bool {
 	return w.AppPubkey == appPubkey && w.WalletServicePubkey == walletServicePubkey
 }
 
+type SubscriptionDetails struct {
+	AppPubkeys map[string]bool
+	Relays     map[string]bool
+}
+
 type Store interface {
 	Set(ctx context.Context, webhook Webhook) error
 	Get(ctx context.Context, walletServicePubkey string, appPubkey string) (*Webhook, error)
 	Delete(ctx context.Context, walletServicePubkey string, appPubkey string) error
-	GetSubscriptions(ctx context.Context) (map[string][]string, error)
+	GetSubscriptionDetails(ctx context.Context) (map[string]SubscriptionDetails, error)
 	GetRelays(ctx context.Context) ([]string, error)
 	DeleteExpired(ctx context.Context, before time.Time) error
 	// Event deduplication methods
