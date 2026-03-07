@@ -153,20 +153,30 @@ func (nm *NostrManager) forwardToNotify(sub *Subscription, walletServicePubkey s
 				continue
 			}
 
-			go func(url string, id string, walletServicePk string, appPk string) {
-				log.Printf("forwarding event %s to notify service", id)
-				err = nm.SendRequest(sub.ctx, url, id)
+			go func(url string, event nostr.RelayEvent, walletServicePk string) {
+				eventId := incomingEvent.ID.Hex()
+				appPubkey := incomingEvent.PubKey.Hex()
+
+				log.Printf("forwarding event %s to notify service", eventId)
+
+				eventJson, err := event.MarshalJSON()
 				if err != nil {
-					log.Printf("failed to send webhook message for event %v: %v", id, err)
+					log.Printf("failed to json-encode event %s: %v", eventId, err)
+					return
+				}
+
+				err = nm.SendRequest(sub.ctx, url, string(eventJson), eventId)
+				if err != nil {
+					log.Printf("failed to send webhook message for event %v: %v", eventId, err)
 					return
 				}
 
 				// Mark event as forwarded after successful delivery
-				err = nm.store.Nwc.MarkEventForwarded(sub.ctx, id, walletServicePk, appPk, url)
+				err = nm.store.Nwc.MarkEventForwarded(sub.ctx, eventId, walletServicePk, appPubkey, url)
 				if err != nil {
-					log.Printf("failed to mark event %v as forwarded: %v", id, err)
+					log.Printf("failed to mark event %v as forwarded: %v", eventId, err)
 				}
-			}(webhook.Url, eventId, walletServicePubkey, eventAuthor)
+			}(webhook.Url, incomingEvent, walletServicePubkey)
 		case <-sub.ctx.Done():
 			return
 		case <-nm.ctx.Done():
@@ -175,11 +185,11 @@ func (nm *NostrManager) forwardToNotify(sub *Subscription, walletServicePubkey s
 	}
 }
 
-func (nm *NostrManager) SendRequest(ctx context.Context, url string, eventId string) error {
+func (nm *NostrManager) SendRequest(ctx context.Context, url string, rawEvent string, eventId string) error {
 	message := channel.WebhookMessage{
 		Template: "nwc_event",
 		Data: map[string]any{
-			"event_id": eventId,
+			"event": rawEvent,
 		},
 	}
 	jsonBytes, err := json.Marshal(message)
