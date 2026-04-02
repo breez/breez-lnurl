@@ -262,6 +262,5 @@ func (nm *NostrManager) Stop() {
 
 func (nm *NostrManager) cancelSubscription(s *Subscription, walletServicePubkey string) {
 	s.cancel()
-	close(s.eventChannel)
 	delete(nm.subs, walletServicePubkey)
 }
