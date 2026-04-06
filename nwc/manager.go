@@ -171,10 +171,14 @@ func (nm *NostrManager) forwardToNotify(sub *Subscription, walletServicePubkey s
 					return
 				}
 
-				// Mark event as forwarded after successful delivery
-				err = nm.store.Nwc.MarkEventForwarded(sub.ctx, eventId, walletServicePk, appPubkey, url)
+				err = nm.store.Nwc.Update(sub.ctx, nwc.WebhookDetails{
+					EventId:             eventId,
+					WalletServicePubkey: walletServicePk,
+					AppPubkey:           appPubkey,
+					WebhookUrl:          url,
+				})
 				if err != nil {
-					log.Printf("failed to mark event %v as forwarded: %v", eventId, err)
+					log.Printf("failed to update webhook details for event %v: %v", eventId, err)
 				}
 			}(webhook.Url, incomingEvent, walletServicePubkey)
 		case <-sub.ctx.Done():

@@ -47,6 +47,18 @@ func (m *MemoryStore) Delete(ctx context.Context, walletServicePubkey string, ap
 	return nil
 }
 
+func (m *MemoryStore) Update(ctx context.Context, details WebhookDetails) error {
+	m.forwardedEvents[details.EventId] = true
+	now := time.Now()
+	for i, hook := range m.webhooks {
+		if hook.Compare(details.WalletServicePubkey, details.AppPubkey) {
+			m.webhooks[i].LastUsedAt = &now
+			return nil
+		}
+	}
+	return nil
+}
+
 func (m *MemoryStore) GetSubscriptionDetails(ctx context.Context) (map[string]SubscriptionDetails, error) {
 	subs := make(map[string]SubscriptionDetails)
 	for _, hook := range m.webhooks {
@@ -87,12 +99,6 @@ func (m *MemoryStore) DeleteExpired(ctx context.Context, before time.Time) error
 func (m *MemoryStore) IsEventForwarded(ctx context.Context, eventId string) (bool, error) {
 	return m.forwardedEvents[eventId], nil
 }
-
-func (m *MemoryStore) MarkEventForwarded(ctx context.Context, eventId string, walletServicePubkey string, appPubkey string, webhookUrl string) error {
-	m.forwardedEvents[eventId] = true
-	return nil
-}
-
 func (m *MemoryStore) DeleteOldForwardedEvents(ctx context.Context, before time.Time) error {
 	// In-memory implementation doesn't need cleanup as it's temporary
 	return nil

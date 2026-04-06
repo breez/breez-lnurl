@@ -41,9 +41,9 @@ func (s *PgStore) Set(ctx context.Context, webhook Webhook) error {
 	var webhookId int64
 	err = tx.QueryRow(
 		ctx,
-		`INSERT INTO public.nwc_webhooks (url, wallet_service_pubkey, app_pubkey, updated_at)
-		 VALUES ($1, $2, $3, NOW())
-		 ON CONFLICT (wallet_service_pubkey, app_pubkey) DO UPDATE SET url = $1, updated_at = NOW()
+		`INSERT INTO public.nwc_webhooks (url, wallet_service_pubkey, app_pubkey)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (wallet_service_pubkey, app_pubkey) DO UPDATE SET url = $1
 		 RETURNING id`,
 		webhook.Url,
 		walletServicePubkey,
@@ -162,6 +162,50 @@ func (s *PgStore) Get(ctx context.Context, walletServicePubkey string, appPubkey
 	}, nil
 }
 
+func (s *PgStore) Update(ctx context.Context, details WebhookDetails) error {
+	walletServicePubkeyBytes, err := hex.DecodeString(details.WalletServicePubkey)
+	if err != nil {
+		return fmt.Errorf("failed to decode wallet service pubkey: %w", err)
+	}
+	appPubkeyBytes, err := hex.DecodeString(details.AppPubkey)
+	if err != nil {
+		return fmt.Errorf("failed to decode app pubkey: %w", err)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(
+		ctx,
+		`INSERT INTO public.nwc_forwarded_events (event_id, wallet_service_pubkey, app_pubkey, webhook_url, forwarded_at)
+		 VALUES ($1, $2, $3, $4, NOW())
+		 ON CONFLICT (event_id) DO NOTHING`,
+		details.EventId,
+		walletServicePubkeyBytes,
+		appPubkeyBytes,
+		details.WebhookUrl,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to mark event as forwarded: %w", err)
+	}
+
+	_, err = tx.Exec(
+		ctx,
+		`UPDATE public.nwc_webhooks SET last_used_at = NOW()
+		 WHERE wallet_service_pubkey = $1 AND app_pubkey = $2`,
+		walletServicePubkeyBytes,
+		appPubkeyBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update last_used_at: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (s *PgStore) Delete(ctx context.Context, walletServicePubkey string, appPubkey string) error {
 	_, err := s.pool.Exec(
 		ctx,
@@ -228,7 +272,7 @@ func (s *PgStore) DeleteExpired(ctx context.Context, before time.Time) error {
 	_, err := s.pool.Exec(
 		ctx,
 		`DELETE FROM public.nwc_webhooks
-		 WHERE updated_at < to_timestamp($1)`,
+		 WHERE last_used_at < to_timestamp($1)`,
 		beforeUnix)
 	return err
 }
@@ -276,35 +320,6 @@ func (s *PgStore) IsEventForwarded(ctx context.Context, eventId string) (bool, e
 	}
 
 	return exists, nil
-}
-
-func (s *PgStore) MarkEventForwarded(ctx context.Context, eventId string, walletServicePubkey string, appPubkey string, webhookUrl string) error {
-	walletServicePubkeyBytes, err := hex.DecodeString(walletServicePubkey)
-	if err != nil {
-		return fmt.Errorf("failed to decode wallet service pubkey: %w", err)
-	}
-
-	appPubkeyBytes, err := hex.DecodeString(appPubkey)
-	if err != nil {
-		return fmt.Errorf("failed to decode app pubkey: %w", err)
-	}
-
-	_, err = s.pool.Exec(
-		ctx,
-		`INSERT INTO public.nwc_forwarded_events (event_id, wallet_service_pubkey, app_pubkey, webhook_url, forwarded_at)
-		 VALUES ($1, $2, $3, $4, NOW())
-		 ON CONFLICT (event_id) DO NOTHING`,
-		eventId,
-		walletServicePubkeyBytes,
-		appPubkeyBytes,
-		webhookUrl,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to mark event as forwarded: %w", err)
-	}
-
-	return nil
 }
 
 func (s *PgStore) DeleteOldForwardedEvents(ctx context.Context, before time.Time) error {
