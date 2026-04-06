@@ -14,8 +14,8 @@ type CleanupService struct {
 // The interval to clean expired listeners
 var CleanupInterval time.Duration = 10 * time.Minute
 
-// The expiry duration is the time until a non-refreshed listener expires
-var ExpiryDuration time.Duration = time.Hour * 24 * 7
+// The expiry duration is the time until an unused webhook expires
+var ExpiryDuration time.Duration = time.Hour * 24 * 30
 
 // The duration to keep forwarded events records (7 days)
 var ForwardedEventsRetentionDuration time.Duration = time.Hour * 24 * 7
